@@ -5,9 +5,9 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "sh -c 'DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} node node_modules/prisma/build/index.js migrate deploy && node server.js'",
+    "startCommand": "sh -c 'DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} node node_modules/prisma/build/index.js migrate deploy; node server.js'",
     "healthcheckPath": "/api/auth/session",
-    "healthcheckTimeout": 30,
+    "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
   }
