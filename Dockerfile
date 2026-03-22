@@ -52,4 +52,4 @@ USER nextjs
 
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node server.js"]
+CMD ["sh", "-c", "DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} node node_modules/prisma/build/index.js migrate deploy && node server.js"]
