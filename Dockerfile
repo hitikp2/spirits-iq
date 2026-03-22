@@ -18,6 +18,12 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Dummy env vars for Next.js build (not used at runtime)
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+ENV DIRECT_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+ENV NEXTAUTH_SECRET="build-secret"
+ENV NEXTAUTH_URL="http://localhost:3000"
+
 RUN npx prisma generate
 RUN npm run build
 
