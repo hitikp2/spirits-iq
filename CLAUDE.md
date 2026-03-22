@@ -91,3 +91,12 @@ Missing either side causes: `Error validating field: The relation field is missi
 | 5 | `prisma generate` | 25 inline enum definitions (invalid syntax) | Expanded all enums to multi-line format |
 | 6 | `prisma generate` | 14 models missing bidirectional `store` relation | Added `store` back-relations + Store array fields |
 | 7 | `next build` | `Property 'stats' does not exist on type '{}'` | Typed `useDashboard` hook + `ignoreBuildErrors: true` |
+| 8 | Static page gen | ioredis ECONNREFUSED + DYNAMIC_SERVER_USAGE | Lazy Redis proxy + `force-dynamic` on all 21 API routes |
+
+## Redis Configuration
+- **USE**: Lazy connection via proxy pattern in `src/lib/db/redis.ts`. Redis connects on first use, not at import time.
+- **DO NOT**: Eagerly create `new Redis()` at module scope — this causes ECONNREFUSED during `next build` static page generation when no Redis server is available.
+
+## Next.js API Routes
+- All API routes that use `request.url` or `request.nextUrl` MUST export `export const dynamic = "force-dynamic"` to prevent Next.js from trying to statically render them at build time.
+- Currently all 21 routes in `src/app/api/` have this export.
