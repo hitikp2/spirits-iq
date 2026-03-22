@@ -1,7 +1,5 @@
 import { db } from "@/lib/db";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ─── Get Club Plans ──────────────────────────────────────
 export async function getClubPlans(storeId: string) {
@@ -88,13 +86,7 @@ Return JSON array of product IDs with tasting notes:
 [{"productId": "...", "notes": "Brief tasting note and pairing suggestion"}]
 Only valid JSON.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 500,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = response.content.find((b) => b.type === "text")?.text || "[]";
+  const text = await generateText(prompt, { maxOutputTokens: 500 }) || "[]";
   try {
     return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch {

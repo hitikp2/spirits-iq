@@ -1,9 +1,7 @@
 import { db } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/db/redis";
 import bcrypt from "bcryptjs";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ─── List Employees ──────────────────────────────────────
 export async function getEmployees(storeId: string) {
@@ -208,15 +206,9 @@ Return ONLY valid JSON:
   ]
 }`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1000,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
+  const textResult = await generateText(prompt, { maxOutputTokens: 1000 });
   try {
-    const parsed = JSON.parse(textBlock?.text?.replace(/```json|```/g, "").trim() || "{}");
+    const parsed = JSON.parse(textResult?.replace(/```json|```/g, "").trim() || "{}");
 
     // Save to database
     for (const dayEntry of parsed.schedule || []) {

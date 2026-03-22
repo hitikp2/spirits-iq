@@ -1,7 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateText, getModel } from "@/lib/ai/gemini";
 import { db } from "@/lib/db";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ─── SMS Auto-Response ────────────────────────────────────
 // Uses RAG against live inventory to answer customer questions
@@ -73,15 +71,9 @@ ${matchingProducts
 
 STORE HOURS: ${JSON.stringify(store?.operatingHours || {})}`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 200,
-    system: systemPrompt,
-    messages: [{ role: "user", content: customerMessage }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  return textBlock?.text || "Thanks for reaching out! We'll get back to you shortly.";
+  const model = getModel({ maxOutputTokens: 200, systemInstruction: systemPrompt });
+  const result = await model.generateContent(customerMessage);
+  return result.response.text() || "Thanks for reaching out! We'll get back to you shortly.";
 }
 
 // ─── AI Insights Generation ──────────────────────────────
@@ -130,17 +122,11 @@ Return a JSON array of insights:
 
 Only return valid JSON, nothing else.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1500,
-    messages: [{ role: "user", content: analysisPrompt }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock?.text) return [];
+  const text = await generateText(analysisPrompt, { maxOutputTokens: 1500 });
+  if (!text) return [];
 
   try {
-    const insights = JSON.parse(textBlock.text.replace(/```json|```/g, "").trim());
+    const insights = JSON.parse(text.replace(/```json|```/g, "").trim());
     // Save insights to database
     for (const insight of insights) {
       await db.aiInsight.create({
@@ -196,15 +182,9 @@ Suggest a complementary product (mixer, garnish, related spirit, or upgrade). Re
 
 Only return valid JSON.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 200,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
+  const text = await generateText(prompt, { maxOutputTokens: 200 });
   try {
-    return JSON.parse(textBlock?.text?.replace(/```json|```/g, "").trim() || "{}");
+    return JSON.parse(text?.replace(/```json|```/g, "").trim() || "{}");
   } catch {
     return null;
   }

@@ -1,8 +1,6 @@
 import { db } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/db/redis";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ─── Generate Daily Snapshot ─────────────────────────────
 // Run at end of each business day via cron job
@@ -348,14 +346,8 @@ ${prevReport ? `PREVIOUS MONTH:
 
 Write in a professional but conversational tone. Include specific numbers. Highlight wins and concerns. End with 2-3 actionable recommendations.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 800,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  return textBlock?.text || "Unable to generate summary.";
+  const text = await generateText(prompt, { maxOutputTokens: 800 });
+  return text || "Unable to generate summary.";
 }
 
 // ─── Helpers ─────────────────────────────────────────────

@@ -1,8 +1,6 @@
 import { db } from "@/lib/db";
 import { sendSms } from "@/lib/sms";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ═══ REVIEW AUTOMATION ════════════════════════════════════
 
@@ -87,12 +85,7 @@ Post type: ${params.type}
 Products: ${products.map((p) => `${p.name} (${p.category.name}, $${p.retailPrice})`).join(", ")}
 Keep it under 200 characters. Include 2-3 relevant emojis. No hashtag spam — max 3 tasteful hashtags.`;
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 150,
-      messages: [{ role: "user", content: prompt }],
-    });
-    content = response.content.find((b) => b.type === "text")?.text || "";
+    content = await generateText(prompt, { maxOutputTokens: 150 }) || "";
   }
 
   return db.socialPost.create({
@@ -164,14 +157,10 @@ Write:
 Return JSON: {"subject":"...","preview":"...","body":"...","cta":"..."}
 Only valid JSON.`;
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 500,
-      messages: [{ role: "user", content: prompt }],
-    });
+    const textResult = await generateText(prompt, { maxOutputTokens: 500 });
 
     try {
-      const parsed = JSON.parse(response.content.find((b) => b.type === "text")?.text?.replace(/```json|```/g, "").trim() || "{}");
+      const parsed = JSON.parse(textResult?.replace(/```json|```/g, "").trim() || "{}");
       subject = parsed.subject || params.name;
       body = parsed.body || "";
     } catch {

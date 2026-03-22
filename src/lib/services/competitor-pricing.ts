@@ -1,8 +1,6 @@
 import { db } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/db/redis";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ─── Get Price Comparisons ───────────────────────────────
 export async function getPriceComparisons(storeId: string) {
@@ -103,13 +101,7 @@ For each recommendation, specify: product, suggested price, expected impact on v
 Return JSON: [{"productId":"...","productName":"...","currentPrice":0,"suggestedPrice":0,"reason":"...","expectedImpact":"...","confidence":0.0-1.0}]
 Only valid JSON.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 600,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = response.content.find((b) => b.type === "text")?.text || "[]";
+  const text = await generateText(prompt, { maxOutputTokens: 600 }) || "[]";
   try {
     return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch {

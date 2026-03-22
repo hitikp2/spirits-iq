@@ -13,7 +13,7 @@ export const LOW_STOCK_MULTIPLIER = 1.0; // Alert when qty <= reorderPoint * thi
 export const CRITICAL_STOCK_THRESHOLD = 0; // Out of stock
 
 // ─── AI Configuration ────────────────────────────────────
-export const AI_MODEL = "claude-sonnet-4-20250514";
+export const AI_MODEL = "gemini-2.5-flash";
 export const AI_MAX_SMS_TOKENS = 200;
 export const AI_MAX_INSIGHT_TOKENS = 1500;
 export const AI_INSIGHT_REFRESH_HOURS = 6;

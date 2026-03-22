@@ -2,9 +2,7 @@ import { db } from "@/lib/db";
 import { getProfitAndLoss, getBalanceSheet, getTaxSummary } from "@/lib/services/accounting";
 import { getTopSellers, getCategoryBreakdown } from "@/lib/services/analytics";
 import { getEmployeePerformance } from "@/lib/services/employees";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ═══ REPORT DATA ASSEMBLY ═════════════════════════════════
 
@@ -166,12 +164,7 @@ KEY METRICS:
 Be specific with numbers. Highlight wins. Flag concerns. End with 2 recommendations. Professional but conversational tone. No bullet points.`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 500,
-      messages: [{ role: "user", content: prompt }],
-    });
-    return response.content.find(b => b.type === "text")?.text || "";
+    return await generateText(prompt, { maxOutputTokens: 500 }) || "";
   } catch {
     return "";
   }

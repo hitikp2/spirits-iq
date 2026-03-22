@@ -30,7 +30,7 @@
     "stripe": "^15.6.0",
     "@stripe/terminal-js": "^0.21.0",
     "twilio": "^5.1.0",
-    "@anthropic-ai/sdk": "^0.24.0",
+    "@google/generative-ai": "^0.21.0",
     "openai": "^4.47.0",
     "@pinecone-database/pinecone": "^2.2.0",
     "redis": "^4.6.0",

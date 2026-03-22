@@ -1,8 +1,6 @@
 import { db } from "@/lib/db";
 import { cacheGet, cacheSet } from "@/lib/db/redis";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/ai/gemini";
 
 // ─── Default Chart of Accounts ───────────────────────────
 const DEFAULT_ACCOUNTS = [
@@ -471,13 +469,7 @@ Tax: $${tax.current?.due || 0} due ${tax.current?.dueDate || "TBD"}
 Return JSON array: [{"type":"FINANCIAL_ALERT","title":"...","description":"...","confidence":0.0-1.0,"priority":1-10}]
 Only valid JSON.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 800,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = response.content.find((b) => b.type === "text")?.text || "[]";
+  const text = await generateText(prompt, { maxOutputTokens: 800 }) || "[]";
   try {
     const insights = JSON.parse(text.replace(/```json|```/g, "").trim());
     for (const insight of insights) {
