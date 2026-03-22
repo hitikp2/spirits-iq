@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ApiResponse } from "@/types";
+import type { ApiResponse, DashboardStats, RevenueDataPoint, TopSeller } from "@/types";
 
 const BASE = "/api";
 
@@ -22,10 +22,16 @@ async function poster<T>(url: string, body: unknown): Promise<T> {
 }
 
 // ─── Dashboard ───────────────────────────────────────────
+interface DashboardData {
+  stats: DashboardStats;
+  revenue: RevenueDataPoint[];
+  topSellers: TopSeller[];
+}
+
 export function useDashboard(storeId: string) {
   return useQuery({
     queryKey: ["dashboard", storeId],
-    queryFn: () => fetcher(`${BASE}/analytics?storeId=${storeId}`),
+    queryFn: () => fetcher<DashboardData>(`${BASE}/analytics?storeId=${storeId}`),
     refetchInterval: 60_000, // Refresh every minute
     enabled: !!storeId,
   });
