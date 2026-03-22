@@ -51,5 +51,8 @@ COPY --from=builder /app/package.json ./package.json
 USER nextjs
 
 ENV HOSTNAME="0.0.0.0"
+ENV PORT=3000
 
-CMD ["sh", "-c", "DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} node node_modules/prisma/build/index.js migrate deploy; node server.js"]
+EXPOSE 3000
+
+CMD ["sh", "-c", "timeout 30 sh -c 'DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} node node_modules/prisma/build/index.js migrate deploy' || echo 'Migration skipped or failed'; exec node server.js"]
