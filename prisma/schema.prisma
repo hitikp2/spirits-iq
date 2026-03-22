@@ -38,7 +38,13 @@ model User {
   @@index([email])
 }
 
-enum UserRole { OWNER MANAGER CASHIER INVENTORY VIEWER }
+enum UserRole {
+  OWNER
+  MANAGER
+  CASHIER
+  INVENTORY
+  VIEWER
+}
 
 model Store {
   id               String   @id @default(cuid())
@@ -162,7 +168,15 @@ model InventoryLog {
   @@index([productId, createdAt])
 }
 
-enum InventoryAction { SALE RESTOCK RETURN ADJUSTMENT DAMAGE TRANSFER AUDIT }
+enum InventoryAction {
+  SALE
+  RESTOCK
+  RETURN
+  ADJUSTMENT
+  DAMAGE
+  TRANSFER
+  AUDIT
+}
 
 model Supplier {
   id             String          @id @default(cuid())
@@ -215,7 +229,14 @@ model PurchaseOrderItem {
   receivedQty     Int           @default(0)
 }
 
-enum POStatus { DRAFT SUBMITTED CONFIRMED SHIPPED RECEIVED CANCELLED }
+enum POStatus {
+  DRAFT
+  SUBMITTED
+  CONFIRMED
+  SHIPPED
+  RECEIVED
+  CANCELLED
+}
 
 // ═══ POINT OF SALE ════════════════════════════════════════
 
@@ -276,8 +297,23 @@ model TransactionItem {
   total          Decimal
 }
 
-enum PaymentMethod { CASH CARD APPLE_PAY GOOGLE_PAY TAB GIFT_CARD SPLIT }
-enum PaymentStatus { PENDING COMPLETED REFUNDED PARTIALLY_REFUNDED VOIDED FAILED }
+enum PaymentMethod {
+  CASH
+  CARD
+  APPLE_PAY
+  GOOGLE_PAY
+  TAB
+  GIFT_CARD
+  SPLIT
+}
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  VOIDED
+  FAILED
+}
 
 // ═══ CUSTOMERS & CRM ══════════════════════════════════════
 
@@ -317,7 +353,13 @@ model Customer {
   @@index([storeId, tier])
 }
 
-enum CustomerTier { REGULAR PREFERRED VIP WINE_CLUB WHOLESALE }
+enum CustomerTier {
+  REGULAR
+  PREFERRED
+  VIP
+  WINE_CLUB
+  WHOLESALE
+}
 
 // ═══ SMS ══════════════════════════════════════════════════
 
@@ -357,9 +399,24 @@ model SmsCampaign {
   @@index([storeId, status])
 }
 
-enum SmsDirection { INBOUND OUTBOUND }
-enum SmsStatus { QUEUED SENT DELIVERED FAILED RECEIVED }
-enum CampaignStatus { DRAFT SCHEDULED SENDING COMPLETED CANCELLED }
+enum SmsDirection {
+  INBOUND
+  OUTBOUND
+}
+enum SmsStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+  RECEIVED
+}
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+}
 
 // ═══ AI ═══════════════════════════════════════════════════
 
@@ -381,8 +438,24 @@ model AiInsight {
   @@index([storeId, status, createdAt])
 }
 
-enum InsightType { DEMAND_FORECAST PRICING_SUGGESTION REORDER_ALERT SHRINKAGE_ALERT TREND_DETECTION CUSTOMER_INSIGHT REVENUE_FORECAST STAFFING_SUGGESTION FINANCIAL_ALERT }
-enum InsightStatus { NEW VIEWED APPLIED DISMISSED EXPIRED }
+enum InsightType {
+  DEMAND_FORECAST
+  PRICING_SUGGESTION
+  REORDER_ALERT
+  SHRINKAGE_ALERT
+  TREND_DETECTION
+  CUSTOMER_INSIGHT
+  REVENUE_FORECAST
+  STAFFING_SUGGESTION
+  FINANCIAL_ALERT
+}
+enum InsightStatus {
+  NEW
+  VIEWED
+  APPLIED
+  DISMISSED
+  EXPIRED
+}
 
 model ActivityLog {
   id        String   @id @default(cuid())
@@ -487,8 +560,21 @@ model StorefrontConfig {
   updatedAt       DateTime @updatedAt
 }
 
-enum FulfillmentType { PICKUP DELIVERY }
-enum OrderStatus { PENDING CONFIRMED PREPARING READY OUT_FOR_DELIVERY DELIVERED PICKED_UP CANCELLED REFUNDED }
+enum FulfillmentType {
+  PICKUP
+  DELIVERY
+}
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  PICKED_UP
+  CANCELLED
+  REFUNDED
+}
 
 // ═══ LOYALTY ══════════════════════════════════════════════
 
@@ -570,9 +656,31 @@ model LoyaltyRedemption {
   @@index([customerId, status])
 }
 
-enum RewardType { DISCOUNT_FIXED DISCOUNT_PERCENT FREE_PRODUCT FREE_CATEGORY EXPERIENCE EARLY_ACCESS }
-enum LoyaltyTxnType { EARN_PURCHASE EARN_BONUS EARN_REFERRAL EARN_BIRTHDAY EARN_SIGNUP SPEND_REDEMPTION ADJUSTMENT EXPIRATION }
-enum RedemptionStatus { PENDING ACTIVE USED EXPIRED CANCELLED }
+enum RewardType {
+  DISCOUNT_FIXED
+  DISCOUNT_PERCENT
+  FREE_PRODUCT
+  FREE_CATEGORY
+  EXPERIENCE
+  EARLY_ACCESS
+}
+enum LoyaltyTxnType {
+  EARN_PURCHASE
+  EARN_BONUS
+  EARN_REFERRAL
+  EARN_BIRTHDAY
+  EARN_SIGNUP
+  SPEND_REDEMPTION
+  ADJUSTMENT
+  EXPIRATION
+}
+enum RedemptionStatus {
+  PENDING
+  ACTIVE
+  USED
+  EXPIRED
+  CANCELLED
+}
 
 // ═══ ACCOUNTING ═══════════════════════════════════════════
 
@@ -672,10 +780,42 @@ model TaxRecord {
   @@unique([storeId, period])
 }
 
-enum AccountType { ASSET LIABILITY EQUITY REVENUE COST_OF_GOODS EXPENSE }
-enum ExpenseCategory { COGS PAYROLL RENT UTILITIES INSURANCE SOFTWARE MARKETING DELIVERY SUPPLIES MAINTENANCE PROFESSIONAL_FEES TAXES OTHER }
-enum ExpenseStatus { PENDING APPROVED PAID REJECTED VOIDED }
-enum TaxStatus { DUE FILED PAID OVERDUE }
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  COST_OF_GOODS
+  EXPENSE
+}
+enum ExpenseCategory {
+  COGS
+  PAYROLL
+  RENT
+  UTILITIES
+  INSURANCE
+  SOFTWARE
+  MARKETING
+  DELIVERY
+  SUPPLIES
+  MAINTENANCE
+  PROFESSIONAL_FEES
+  TAXES
+  OTHER
+}
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+  VOIDED
+}
+enum TaxStatus {
+  DUE
+  FILED
+  PAID
+  OVERDUE
+}
 
 // ═══ REPORTS ══════════════════════════════════════════════
 
@@ -792,7 +932,12 @@ model TimeOffRequest {
   @@index([userId, status])
 }
 
-enum TimeOffStatus { PENDING APPROVED DENIED CANCELLED }
+enum TimeOffStatus {
+  PENDING
+  APPROVED
+  DENIED
+  CANCELLED
+}
 
 // ═══ DELIVERY ═════════════════════════════════════════════
 
@@ -816,7 +961,13 @@ model Driver {
   @@index([storeId, status])
 }
 
-enum DriverStatus { AVAILABLE DELIVERING RETURNING ON_BREAK OFFLINE }
+enum DriverStatus {
+  AVAILABLE
+  DELIVERING
+  RETURNING
+  ON_BREAK
+  OFFLINE
+}
 
 // ═══ SETTINGS ═════════════════════════════════════════════
 
@@ -933,8 +1084,18 @@ model ClubShipmentItem {
   tastingNotes String?
 }
 
-enum SubStatus { ACTIVE PAUSED CANCELLED PAST_DUE }
-enum ShipmentStatus { PREPARING SHIPPED DELIVERED RETURNED }
+enum SubStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  PAST_DUE
+}
+enum ShipmentStatus {
+  PREPARING
+  SHIPPED
+  DELIVERED
+  RETURNED
+}
 
 // ═══ SECURITY ═════════════════════════════════════════════
 
@@ -955,7 +1116,15 @@ model SecurityEvent {
   @@index([storeId, eventType, createdAt])
 }
 
-enum SecurityEventType { THEFT_SUSPECT LOITERING SHELF_GAP UNAUTHORIZED_ACCESS DELIVERY CUSTOMER_COUNT OTHER }
+enum SecurityEventType {
+  THEFT_SUSPECT
+  LOITERING
+  SHELF_GAP
+  UNAUTHORIZED_ACCESS
+  DELIVERY
+  CUSTOMER_COUNT
+  OTHER
+}
 
 // ═══ COMPETITOR PRICING ═══════════════════════════════════
 

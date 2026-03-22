@@ -24,7 +24,7 @@ ENV DIRECT_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 ENV NEXTAUTH_SECRET="build-secret"
 ENV NEXTAUTH_URL="http://localhost:3000"
 
-RUN npx prisma generate
+RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
 # ─── Stage 3: Production ──────────────────────────────────
@@ -52,4 +52,4 @@ USER nextjs
 
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node server.js"]
