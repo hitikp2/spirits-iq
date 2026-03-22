@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-body: "Nunito Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  --brand: #f5a623;
+  --brand-dark: #c4841a;
+  --brand-glow: rgba(245, 166, 35, 0.12);
+
+  --surface-950: #08080d;
+  --surface-900: #101018;
+  --surface-800: #161620;
+  --surface-700: #1c1c28;
+  --surface-600: #252535;
+  --surface-500: #353548;
+
+  --text-primary: #eeeef4;
+  --text-secondary: #9999b0;
+  --text-muted: #5a5a6e;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--surface-950);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-500);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-600);
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Transition defaults */
+.transition-default {
+  transition: all 0.2s ease;
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(16, 16, 24, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Glow hover */
+.glow-hover:hover {
+  box-shadow: 0 8px 30px var(--brand-glow);
+}
+
+/* POS grid responsive */
+@media (max-width: 768px) {
+  .pos-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .pos-cart {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+  }
+}
+
+/* Print styles for receipts */
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .receipt {
+    width: 80mm;
+    font-family: monospace;
+    font-size: 12px;
+  }
+}

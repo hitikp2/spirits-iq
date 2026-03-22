@@ -1,0 +1,1059 @@
+// ═══════════════════════════════════════════════════════════
+// 🥃 SPIRITS IQ — Complete Unified Database Schema
+// 50+ models · Full platform coverage
+// ═══════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══ AUTH & USERS ═════════════════════════════════════════
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String
+  passwordHash    String
+  role            UserRole  @default(CASHIER)
+  pin             String?
+  avatarUrl       String?
+  storeId         String
+  store           Store     @relation(fields: [storeId], references: [id])
+  transactions    Transaction[]
+  activityLogs    ActivityLog[]
+  shifts          Shift[]
+  scheduleEntries ScheduleEntry[]
+  timeOffRequests TimeOffRequest[]
+  driver          Driver?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([storeId])
+  @@index([email])
+}
+
+enum UserRole { OWNER MANAGER CASHIER INVENTORY VIEWER }
+
+model Store {
+  id               String   @id @default(cuid())
+  name             String
+  slug             String   @unique
+  address          String
+  city             String
+  state            String
+  zip              String
+  phone            String
+  email            String
+  timezone         String   @default("America/Los_Angeles")
+  taxRate          Decimal  @default(0.0975)
+  currency         String   @default("USD")
+  licenseNumber    String?
+  logoUrl          String?
+  brandColors      Json?
+  operatingHours   Json?
+  settings         Json?
+  users            User[]
+  products         Product[]
+  categories       Category[]
+  suppliers        Supplier[]
+  purchaseOrders   PurchaseOrder[]
+  transactions     Transaction[]
+  customers        Customer[]
+  campaigns        SmsCampaign[]
+  aiInsights       AiInsight[]
+  registers        Register[]
+  onlineOrders     OnlineOrder[]
+  storefrontConfig StorefrontConfig?
+  loyaltyConfig    LoyaltyConfig?
+  storeSettings    StoreSettings?
+  drivers          Driver[]
+  dailySnapshots   DailySnapshot[]
+  monthlyReports   MonthlyReport[]
+  accounts         Account[]
+  journalEntries   JournalEntry[]
+  clubPlans        ClubPlan[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ═══ PRODUCTS & INVENTORY ═════════════════════════════════
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String
+  icon      String?
+  sortOrder Int       @default(0)
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id])
+  products  Product[]
+  createdAt DateTime  @default(now())
+  @@unique([storeId, slug])
+  @@index([storeId])
+}
+
+model Product {
+  id               String    @id @default(cuid())
+  sku              String
+  barcode          String?
+  name             String
+  brand            String?
+  description      String?
+  categoryId       String
+  category         Category  @relation(fields: [categoryId], references: [id])
+  storeId          String
+  store            Store     @relation(fields: [storeId], references: [id])
+  costPrice        Decimal
+  retailPrice      Decimal
+  compareAtPrice   Decimal?
+  margin           Decimal?
+  quantity         Int       @default(0)
+  reorderPoint     Int       @default(5)
+  reorderQuantity  Int       @default(12)
+  shelfLocation    String?
+  size             String?
+  abv              Decimal?
+  vintage          Int?
+  region           String?
+  imageUrl         String?
+  tags             String[]
+  velocityScore    Decimal?
+  demandForecast   Json?
+  priceSuggestion  Decimal?
+  embeddingId      String?
+  isActive         Boolean   @default(true)
+  isAgeRestricted  Boolean   @default(true)
+  minAge           Int       @default(21)
+  supplierId       String?
+  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  lineItems        TransactionItem[]
+  onlineOrderItems OnlineOrderItem[]
+  inventoryLogs    InventoryLog[]
+  poItems          PurchaseOrderItem[]
+  reviews          ProductReview[]
+  competitorPrices CompetitorPrice[]
+  clubShipmentItems ClubShipmentItem[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  @@unique([storeId, sku])
+  @@index([storeId, categoryId])
+  @@index([barcode])
+  @@index([storeId, isActive])
+}
+
+model InventoryLog {
+  id          String          @id @default(cuid())
+  productId   String
+  product     Product         @relation(fields: [productId], references: [id])
+  type        InventoryAction
+  quantity    Int
+  prevQty     Int
+  newQty      Int
+  reason      String?
+  reference   String?
+  performedBy String?
+  createdAt   DateTime        @default(now())
+  @@index([productId, createdAt])
+}
+
+enum InventoryAction { SALE RESTOCK RETURN ADJUSTMENT DAMAGE TRANSFER AUDIT }
+
+model Supplier {
+  id             String          @id @default(cuid())
+  name           String
+  contactName    String?
+  email          String?
+  phone          String?
+  address        String?
+  accountNumber  String?
+  leadTimeDays   Int             @default(3)
+  notes          String?
+  storeId        String
+  store          Store           @relation(fields: [storeId], references: [id])
+  products       Product[]
+  purchaseOrders PurchaseOrder[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  @@index([storeId])
+}
+
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  orderNumber  String
+  supplierId   String
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+  storeId      String
+  store        Store               @relation(fields: [storeId], references: [id])
+  status       POStatus            @default(DRAFT)
+  items        PurchaseOrderItem[]
+  subtotal     Decimal
+  tax          Decimal             @default(0)
+  total        Decimal
+  notes        String?
+  expectedDate DateTime?
+  receivedDate DateTime?
+  aiGenerated  Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  @@index([storeId, status])
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Int
+  costPrice       Decimal
+  receivedQty     Int           @default(0)
+}
+
+enum POStatus { DRAFT SUBMITTED CONFIRMED SHIPPED RECEIVED CANCELLED }
+
+// ═══ POINT OF SALE ════════════════════════════════════════
+
+model Register {
+  id           String        @id @default(cuid())
+  name         String
+  terminalId   String?
+  storeId      String
+  store        Store         @relation(fields: [storeId], references: [id])
+  isActive     Boolean       @default(true)
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+}
+
+model Transaction {
+  id                 String            @id @default(cuid())
+  transactionNum     String
+  storeId            String
+  store              Store             @relation(fields: [storeId], references: [id])
+  registerId         String?
+  register           Register?         @relation(fields: [registerId], references: [id])
+  cashierId          String
+  cashier            User              @relation(fields: [cashierId], references: [id])
+  customerId         String?
+  customer           Customer?         @relation(fields: [customerId], references: [id])
+  subtotal           Decimal
+  taxAmount          Decimal
+  discountAmount     Decimal           @default(0)
+  tipAmount          Decimal           @default(0)
+  total              Decimal
+  paymentMethod      PaymentMethod
+  paymentStatus      PaymentStatus     @default(COMPLETED)
+  stripePaymentId    String?
+  cardLast4          String?
+  cardBrand          String?
+  ageVerified        Boolean           @default(false)
+  verificationMethod String?
+  items              TransactionItem[]
+  journalEntryId     String?
+  notes              String?
+  voidReason         String?
+  refundOf           String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  @@index([storeId, createdAt])
+  @@index([customerId])
+}
+
+model TransactionItem {
+  id             String      @id @default(cuid())
+  transactionId  String
+  transaction    Transaction @relation(fields: [transactionId], references: [id])
+  productId      String
+  product        Product     @relation(fields: [productId], references: [id])
+  quantity       Int
+  unitPrice      Decimal
+  discountAmount Decimal     @default(0)
+  total          Decimal
+}
+
+enum PaymentMethod { CASH CARD APPLE_PAY GOOGLE_PAY TAB GIFT_CARD SPLIT }
+enum PaymentStatus { PENDING COMPLETED REFUNDED PARTIALLY_REFUNDED VOIDED FAILED }
+
+// ═══ CUSTOMERS & CRM ══════════════════════════════════════
+
+model Customer {
+  id               String           @id @default(cuid())
+  phone            String
+  email            String?
+  firstName        String?
+  lastName         String?
+  storeId          String
+  store            Store            @relation(fields: [storeId], references: [id])
+  tier             CustomerTier     @default(REGULAR)
+  tags             String[]
+  preferences      Json?
+  loyaltyPoints    Int              @default(0)
+  totalSpent       Decimal          @default(0)
+  visitCount       Int              @default(0)
+  lastVisit        DateTime?
+  smsOptedIn       Boolean          @default(true)
+  smsOptInDate     DateTime?
+  aiProfile        Json?
+  embeddingId      String?
+  transactions     Transaction[]
+  onlineOrders     OnlineOrder[]
+  smsMessages      SmsMessage[]
+  reviews          ProductReview[]
+  loyaltyTxns      LoyaltyTransaction[]
+  redemptions      LoyaltyRedemption[]
+  ltv              CustomerLifetimeValue?
+  referrals        Referral[]
+  referredBy       ReferralConversion[] @relation("ReferredBy")
+  reviewRequests   ReviewRequest[]
+  subscriptions    ClubSubscription[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  @@unique([storeId, phone])
+  @@index([storeId, tier])
+}
+
+enum CustomerTier { REGULAR PREFERRED VIP WINE_CLUB WHOLESALE }
+
+// ═══ SMS ══════════════════════════════════════════════════
+
+model SmsMessage {
+  id          String       @id @default(cuid())
+  customerId  String
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  direction   SmsDirection
+  body        String
+  twilioSid   String?
+  status      SmsStatus    @default(SENT)
+  aiGenerated Boolean      @default(false)
+  aiModel     String?
+  campaignId  String?
+  campaign    SmsCampaign? @relation(fields: [campaignId], references: [id])
+  createdAt   DateTime     @default(now())
+  @@index([customerId, createdAt])
+}
+
+model SmsCampaign {
+  id             String         @id @default(cuid())
+  name           String
+  storeId        String
+  store          Store          @relation(fields: [storeId], references: [id])
+  messageBody    String
+  targetTier     CustomerTier?
+  targetTags     String[]
+  scheduledFor   DateTime?
+  sentAt         DateTime?
+  recipientCount Int            @default(0)
+  deliveredCount Int            @default(0)
+  responseCount  Int            @default(0)
+  messages       SmsMessage[]
+  status         CampaignStatus @default(DRAFT)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  @@index([storeId, status])
+}
+
+enum SmsDirection { INBOUND OUTBOUND }
+enum SmsStatus { QUEUED SENT DELIVERED FAILED RECEIVED }
+enum CampaignStatus { DRAFT SCHEDULED SENDING COMPLETED CANCELLED }
+
+// ═══ AI ═══════════════════════════════════════════════════
+
+model AiInsight {
+  id          String        @id @default(cuid())
+  storeId     String
+  store       Store         @relation(fields: [storeId], references: [id])
+  type        InsightType
+  title       String
+  description String
+  data        Json?
+  confidence  Decimal
+  priority    Int           @default(5)
+  status      InsightStatus @default(NEW)
+  actionTaken String?
+  expiresAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  @@index([storeId, status, createdAt])
+}
+
+enum InsightType { DEMAND_FORECAST PRICING_SUGGESTION REORDER_ALERT SHRINKAGE_ALERT TREND_DETECTION CUSTOMER_INSIGHT REVENUE_FORECAST STAFFING_SUGGESTION FINANCIAL_ALERT }
+enum InsightStatus { NEW VIEWED APPLIED DISMISSED EXPIRED }
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+}
+
+// ═══ E-COMMERCE ═══════════════════════════════════════════
+
+model OnlineOrder {
+  id                String           @id @default(cuid())
+  orderNumber       String           @unique
+  storeId           String
+  store             Store            @relation(fields: [storeId], references: [id])
+  customerId        String
+  customer          Customer         @relation(fields: [customerId], references: [id])
+  items             OnlineOrderItem[]
+  subtotal          Decimal
+  taxAmount         Decimal
+  deliveryFee       Decimal          @default(0)
+  discountAmount    Decimal          @default(0)
+  tipAmount         Decimal          @default(0)
+  total             Decimal
+  fulfillmentType   FulfillmentType
+  status            OrderStatus      @default(PENDING)
+  scheduledFor      DateTime?
+  preparedAt        DateTime?
+  completedAt       DateTime?
+  deliveryAddress   String?
+  deliveryNotes     String?
+  driverId          String?
+  paymentMethod     String           @default("card")
+  stripePaymentId   String?
+  paymentStatus     PaymentStatus    @default(PENDING)
+  ageVerified       Boolean          @default(false)
+  verifiedAt        DateTime?
+  pointsEarned      Int              @default(0)
+  pointsRedeemed    Int              @default(0)
+  couponCode        String?
+  aiRecommendations Json?
+  journalEntryId    String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  @@index([storeId, status, createdAt])
+  @@index([customerId])
+}
+
+model OnlineOrderItem {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     OnlineOrder @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product     @relation(fields: [productId], references: [id])
+  quantity  Int
+  unitPrice Decimal
+  total     Decimal
+}
+
+model ProductReview {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  rating     Int
+  title      String?
+  body       String?
+  verified   Boolean  @default(false)
+  helpful    Int      @default(0)
+  createdAt  DateTime @default(now())
+  @@unique([productId, customerId])
+  @@index([productId, rating])
+}
+
+model StorefrontConfig {
+  id              String   @id @default(cuid())
+  storeId         String   @unique
+  store           Store    @relation(fields: [storeId], references: [id])
+  heroTitle       String   @default("Premium Spirits, Delivered")
+  heroSubtitle    String?
+  featuredIds     String[]
+  bannerText      String?
+  deliveryEnabled Boolean  @default(true)
+  pickupEnabled   Boolean  @default(true)
+  deliveryFee     Decimal  @default(5.99)
+  freeDeliveryMin Decimal  @default(75)
+  deliveryRadius  Decimal  @default(10)
+  deliveryMinutes Int      @default(45)
+  pickupMinutes   Int      @default(15)
+  minOrderAmount  Decimal  @default(0)
+  maxOrderAmount  Decimal  @default(2000)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum FulfillmentType { PICKUP DELIVERY }
+enum OrderStatus { PENDING CONFIRMED PREPARING READY OUT_FOR_DELIVERY DELIVERED PICKED_UP CANCELLED REFUNDED }
+
+// ═══ LOYALTY ══════════════════════════════════════════════
+
+model LoyaltyConfig {
+  id              String         @id @default(cuid())
+  storeId         String         @unique
+  store           Store          @relation(fields: [storeId], references: [id])
+  programName     String         @default("Spirits Rewards")
+  pointsPerDollar Decimal        @default(1)
+  isActive        Boolean        @default(true)
+  tiers           LoyaltyTier[]
+  rewards         LoyaltyReward[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model LoyaltyTier {
+  id               String        @id @default(cuid())
+  configId         String
+  config           LoyaltyConfig @relation(fields: [configId], references: [id])
+  name             String
+  minAnnualSpend   Decimal
+  pointsMultiplier Decimal       @default(1)
+  discountPercent  Decimal       @default(0)
+  perks            String[]
+  color            String        @default("#F5A623")
+  sortOrder        Int           @default(0)
+  createdAt        DateTime      @default(now())
+  @@index([configId, sortOrder])
+}
+
+model LoyaltyReward {
+  id               String              @id @default(cuid())
+  configId         String
+  config           LoyaltyConfig       @relation(fields: [configId], references: [id])
+  name             String
+  description      String?
+  pointsCost       Int
+  type             RewardType
+  value            Decimal?
+  productId        String?
+  isActive         Boolean             @default(true)
+  limitPerCustomer Int?
+  totalLimit       Int?
+  redeemedCount    Int                 @default(0)
+  redemptions      LoyaltyRedemption[]
+  createdAt        DateTime            @default(now())
+  @@index([configId, isActive])
+}
+
+model LoyaltyTransaction {
+  id          String         @id @default(cuid())
+  customerId  String
+  customer    Customer       @relation(fields: [customerId], references: [id])
+  storeId     String
+  type        LoyaltyTxnType
+  points      Int
+  balance     Int
+  description String
+  reference   String?
+  multiplier  Decimal        @default(1)
+  expiresAt   DateTime?
+  createdAt   DateTime       @default(now())
+  @@index([customerId, createdAt])
+}
+
+model LoyaltyRedemption {
+  id          String           @id @default(cuid())
+  customerId  String
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  rewardId    String
+  reward      LoyaltyReward    @relation(fields: [rewardId], references: [id])
+  pointsSpent Int
+  status      RedemptionStatus @default(PENDING)
+  couponCode  String?          @unique
+  usedAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime         @default(now())
+  @@index([customerId, status])
+}
+
+enum RewardType { DISCOUNT_FIXED DISCOUNT_PERCENT FREE_PRODUCT FREE_CATEGORY EXPERIENCE EARLY_ACCESS }
+enum LoyaltyTxnType { EARN_PURCHASE EARN_BONUS EARN_REFERRAL EARN_BIRTHDAY EARN_SIGNUP SPEND_REDEMPTION ADJUSTMENT EXPIRATION }
+enum RedemptionStatus { PENDING ACTIVE USED EXPIRED CANCELLED }
+
+// ═══ ACCOUNTING ═══════════════════════════════════════════
+
+model Account {
+  id          String        @id @default(cuid())
+  storeId     String
+  store       Store         @relation(fields: [storeId], references: [id])
+  code        String
+  name        String
+  type        AccountType
+  subtype     String?
+  balance     Decimal       @default(0)
+  isSystem    Boolean       @default(false)
+  isActive    Boolean       @default(true)
+  parentId    String?
+  parent      Account?      @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children    Account[]     @relation("AccountHierarchy")
+  debitLines  JournalLine[] @relation("DebitAccount")
+  creditLines JournalLine[] @relation("CreditAccount")
+  createdAt   DateTime      @default(now())
+  @@unique([storeId, code])
+  @@index([storeId, type])
+}
+
+model JournalEntry {
+  id            String        @id @default(cuid())
+  storeId       String
+  store         Store         @relation(fields: [storeId], references: [id])
+  entryNumber   String
+  date          DateTime      @db.Date
+  description   String
+  reference     String?
+  referenceType String?
+  referenceId   String?
+  lines         JournalLine[]
+  totalAmount   Decimal
+  isAutomatic   Boolean       @default(true)
+  isReversed    Boolean       @default(false)
+  reversedBy    String?
+  postedBy      String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  @@index([storeId, date])
+}
+
+model JournalLine {
+  id              String        @id @default(cuid())
+  journalEntryId  String
+  journalEntry    JournalEntry  @relation(fields: [journalEntryId], references: [id])
+  debitAccountId  String?
+  debitAccount    Account?      @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccountId String?
+  creditAccount   Account?      @relation("CreditAccount", fields: [creditAccountId], references: [id])
+  amount          Decimal
+  description     String?
+}
+
+model Expense {
+  id             String          @id @default(cuid())
+  storeId        String
+  vendorName     String
+  description    String
+  amount         Decimal
+  taxAmount      Decimal         @default(0)
+  total          Decimal
+  category       ExpenseCategory
+  paymentMethod  String          @default("card")
+  status         ExpenseStatus   @default(PENDING)
+  receiptUrl     String?
+  dueDate        DateTime?
+  paidDate       DateTime?
+  isRecurring    Boolean         @default(false)
+  recurringFreq  String?
+  journalEntryId String?
+  approvedBy     String?
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  @@index([storeId, category, createdAt])
+}
+
+model TaxRecord {
+  id           String    @id @default(cuid())
+  storeId      String
+  period       String
+  collected    Decimal
+  remitted     Decimal   @default(0)
+  due          Decimal
+  rate         Decimal
+  jurisdiction String    @default("CA")
+  dueDate      DateTime
+  paidDate     DateTime?
+  status       TaxStatus @default(DUE)
+  filingRef    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  @@unique([storeId, period])
+}
+
+enum AccountType { ASSET LIABILITY EQUITY REVENUE COST_OF_GOODS EXPENSE }
+enum ExpenseCategory { COGS PAYROLL RENT UTILITIES INSURANCE SOFTWARE MARKETING DELIVERY SUPPLIES MAINTENANCE PROFESSIONAL_FEES TAXES OTHER }
+enum ExpenseStatus { PENDING APPROVED PAID REJECTED VOIDED }
+enum TaxStatus { DUE FILED PAID OVERDUE }
+
+// ═══ REPORTS ══════════════════════════════════════════════
+
+model DailySnapshot {
+  id                String   @id @default(cuid())
+  storeId           String
+  store             Store    @relation(fields: [storeId], references: [id])
+  date              DateTime @db.Date
+  revenue           Decimal
+  transactions      Int
+  avgTicket         Decimal
+  uniqueCustomers   Int
+  newCustomers      Int
+  itemsSold         Int
+  topProductId      String?
+  categoryBreakdown Json?
+  hourlyRevenue     Json?
+  paymentBreakdown  Json?
+  onlineRevenue     Decimal  @default(0)
+  deliveryCount     Int      @default(0)
+  createdAt         DateTime @default(now())
+  @@unique([storeId, date])
+}
+
+model MonthlyReport {
+  id                String   @id @default(cuid())
+  storeId           String
+  year              Int
+  month             Int
+  revenue           Decimal
+  cogs              Decimal
+  grossProfit       Decimal
+  grossMargin       Decimal
+  operatingExpenses Decimal  @default(0)
+  netIncome         Decimal  @default(0)
+  netMargin         Decimal  @default(0)
+  transactions      Int
+  avgTicket         Decimal
+  uniqueCustomers   Int
+  newCustomers      Int
+  returningRate     Decimal
+  topProducts       Json?
+  topCategories     Json?
+  inventoryTurns    Decimal?
+  shrinkageValue    Decimal? @default(0)
+  smsMetrics        Json?
+  aiInsightCount    Int      @default(0)
+  executiveSummary  String?
+  createdAt         DateTime @default(now())
+  @@unique([storeId, year, month])
+}
+
+model CustomerLifetimeValue {
+  id             String   @id @default(cuid())
+  customerId     String   @unique
+  customer       Customer @relation(fields: [customerId], references: [id])
+  storeId        String
+  totalRevenue   Decimal
+  totalOrders    Int
+  avgOrderValue  Decimal
+  firstPurchase  DateTime
+  lastPurchase   DateTime
+  daysSinceFirst Int
+  purchaseFreq   Decimal
+  predictedLtv   Decimal
+  churnRisk      Decimal
+  segment        String?
+  updatedAt      DateTime @updatedAt
+  @@index([storeId, segment])
+}
+
+// ═══ EMPLOYEES ════════════════════════════════════════════
+
+model Shift {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  date         DateTime  @db.Date
+  clockIn      DateTime
+  clockOut     DateTime?
+  hoursWorked  Decimal?
+  breakMinutes Int       @default(0)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  @@index([userId, date])
+}
+
+model ScheduleEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime @db.Date
+  startTime   String
+  endTime     String
+  role        String?
+  aiGenerated Boolean  @default(false)
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([userId, date, startTime])
+}
+
+model TimeOffRequest {
+  id         String        @id @default(cuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id])
+  startDate  DateTime      @db.Date
+  endDate    DateTime      @db.Date
+  reason     String?
+  status     TimeOffStatus @default(PENDING)
+  approvedBy String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  @@index([userId, status])
+}
+
+enum TimeOffStatus { PENDING APPROVED DENIED CANCELLED }
+
+// ═══ DELIVERY ═════════════════════════════════════════════
+
+model Driver {
+  id              String       @id @default(cuid())
+  userId          String?      @unique
+  user            User?        @relation(fields: [userId], references: [id])
+  storeId         String
+  store           Store        @relation(fields: [storeId], references: [id])
+  name            String
+  phone           String
+  email           String?
+  vehicleInfo     String?
+  licenseNum      String?
+  status          DriverStatus @default(OFFLINE)
+  rating          Decimal      @default(5.0)
+  totalDeliveries Int          @default(0)
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  @@index([storeId, status])
+}
+
+enum DriverStatus { AVAILABLE DELIVERING RETURNING ON_BREAK OFFLINE }
+
+// ═══ SETTINGS ═════════════════════════════════════════════
+
+model StoreSettings {
+  id                  String   @id @default(cuid())
+  storeId             String   @unique
+  store               Store    @relation(fields: [storeId], references: [id])
+  requireAgeVerify    Boolean  @default(false)
+  allowCashPayments   Boolean  @default(true)
+  allowTips           Boolean  @default(true)
+  defaultTipOptions   Json?
+  receiptEmailEnabled Boolean  @default(false)
+  lowStockAlerts      Boolean  @default(true)
+  autoReorderEnabled  Boolean  @default(false)
+  aiAutoResponse      Boolean  @default(true)
+  smsQuietHoursStart  String?
+  smsQuietHoursEnd    String?
+  deliveryEnabled     Boolean  @default(true)
+  deliveryFee         Decimal  @default(5.99)
+  freeDeliveryMin     Decimal  @default(75)
+  loyaltyEnabled      Boolean  @default(true)
+  signupBonusPoints   Int      @default(100)
+  referralBonusPoints Int      @default(250)
+  birthdayBonusPoints Int      @default(500)
+  pointsExpireDays    Int?
+  aiModel             String   @default("claude-sonnet-4-20250514")
+  aiPricingSuggestions Boolean @default(true)
+  aiDemandForecasting Boolean  @default(true)
+  slackWebhookUrl     String?
+  emailNotifications  Boolean  @default(true)
+  notifyOnLowStock    Boolean  @default(true)
+  notifyOnLargeOrder  Boolean  @default(true)
+  largeOrderThreshold Decimal  @default(500)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model SettingsChange {
+  id        String   @id @default(cuid())
+  storeId   String
+  changedBy String
+  field     String
+  oldValue  String?
+  newValue  String
+  createdAt DateTime @default(now())
+  @@index([storeId, createdAt])
+}
+
+// ═══ SPIRITS CLUB ═════════════════════════════════════════
+
+model ClubPlan {
+  id              String             @id @default(cuid())
+  storeId         String
+  store           Store              @relation(fields: [storeId], references: [id])
+  name            String
+  slug            String
+  price           Decimal
+  frequency       String             @default("monthly")
+  bottlesPerMonth Int
+  description     String?
+  perks           String[]
+  discountPercent Decimal            @default(0)
+  minBottlePrice  Decimal?
+  maxBottlePrice  Decimal?
+  isActive        Boolean            @default(true)
+  color           String             @default("#F5A623")
+  subscriptions   ClubSubscription[]
+  createdAt       DateTime           @default(now())
+  @@unique([storeId, slug])
+}
+
+model ClubSubscription {
+  id                   String         @id @default(cuid())
+  customerId           String
+  customer             Customer       @relation(fields: [customerId], references: [id])
+  storeId              String
+  planId               String
+  plan                 ClubPlan       @relation(fields: [planId], references: [id])
+  status               SubStatus      @default(ACTIVE)
+  stripeSubscriptionId String?
+  preferences          Json?
+  nextShipmentDate     DateTime?
+  cancelledAt          DateTime?
+  shipments            ClubShipment[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  @@index([customerId, status])
+}
+
+model ClubShipment {
+  id             String             @id @default(cuid())
+  subscriptionId String
+  subscription   ClubSubscription   @relation(fields: [subscriptionId], references: [id])
+  storeId        String
+  status         ShipmentStatus     @default(PREPARING)
+  totalValue     Decimal
+  trackingNumber String?
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  rating         Int?
+  feedback       String?
+  items          ClubShipmentItem[]
+  createdAt      DateTime           @default(now())
+  @@index([subscriptionId, createdAt])
+}
+
+model ClubShipmentItem {
+  id           String       @id @default(cuid())
+  shipmentId   String
+  shipment     ClubShipment @relation(fields: [shipmentId], references: [id])
+  productId    String
+  product      Product      @relation(fields: [productId], references: [id])
+  price        Decimal
+  tastingNotes String?
+}
+
+enum SubStatus { ACTIVE PAUSED CANCELLED PAST_DUE }
+enum ShipmentStatus { PREPARING SHIPPED DELIVERED RETURNED }
+
+// ═══ SECURITY ═════════════════════════════════════════════
+
+model SecurityEvent {
+  id          String            @id @default(cuid())
+  storeId     String
+  cameraId    String
+  cameraName  String
+  eventType   SecurityEventType
+  description String
+  confidence  Decimal
+  severity    String            @default("LOW")
+  imageUrl    String?
+  metadata    Json?
+  reviewed    Boolean           @default(false)
+  reviewedBy  String?
+  createdAt   DateTime          @default(now())
+  @@index([storeId, eventType, createdAt])
+}
+
+enum SecurityEventType { THEFT_SUSPECT LOITERING SHELF_GAP UNAUTHORIZED_ACCESS DELIVERY CUSTOMER_COUNT OTHER }
+
+// ═══ COMPETITOR PRICING ═══════════════════════════════════
+
+model CompetitorPrice {
+  id             String   @id @default(cuid())
+  storeId        String
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id])
+  competitorName String
+  price          Decimal
+  sourceUrl      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@unique([storeId, productId, competitorName])
+}
+
+// ═══ MARKETING ════════════════════════════════════════════
+
+model ReviewRequest {
+  id            String   @id @default(cuid())
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  storeId       String
+  transactionId String?
+  status        String   @default("SENT")
+  platform      String?
+  rating        Int?
+  twilioSid     String?
+  createdAt     DateTime @default(now())
+  @@index([storeId, createdAt])
+}
+
+model SocialPost {
+  id           String    @id @default(cuid())
+  storeId      String
+  platform     String
+  postType     String
+  content      String
+  imageUrl     String?
+  status       String    @default("DRAFT")
+  scheduledFor DateTime?
+  postedAt     DateTime?
+  engagement   Json?
+  externalId   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  @@index([storeId, status])
+}
+
+model EmailCampaign {
+  id             String    @id @default(cuid())
+  storeId        String
+  name           String
+  subject        String
+  body           String
+  targetTier     String?
+  targetTags     String[]
+  recipientCount Int       @default(0)
+  sentCount      Int       @default(0)
+  openedCount    Int       @default(0)
+  clickedCount   Int       @default(0)
+  revenue        Decimal   @default(0)
+  status         String    @default("DRAFT")
+  scheduledFor   DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  @@index([storeId, status])
+}
+
+// ═══ REFERRALS ════════════════════════════════════════════
+
+model Referral {
+  id          String               @id @default(cuid())
+  referrerId  String
+  referrer    Customer             @relation(fields: [referrerId], references: [id])
+  code        String               @unique
+  conversions ReferralConversion[]
+  createdAt   DateTime             @default(now())
+  @@index([referrerId])
+}
+
+model ReferralConversion {
+  id         String   @id @default(cuid())
+  referralId String
+  referral   Referral @relation(fields: [referralId], references: [id])
+  referredId String
+  referred   Customer @relation("ReferredBy", fields: [referredId], references: [id])
+  createdAt  DateTime @default(now())
+  @@unique([referralId, referredId])
+}
+
+// ═══ REPORT ARCHIVE ═══════════════════════════════════════
+
+model ReportArchive {
+  id        String   @id @default(cuid())
+  storeId   String
+  type      String
+  period    String
+  html      String
+  data      Json?
+  createdAt DateTime @default(now())
+}

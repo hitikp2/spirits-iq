@@ -1,0 +1,20 @@
+{
+  "name": "SPIRITS IQ",
+  "short_name": "Spirits IQ",
+  "description": "AI-Powered Liquor Store Management Platform",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08080D",
+  "theme_color": "#F5A623",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "/images/screenshot-dashboard.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide" },
+    { "src": "/images/screenshot-mobile.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow" }
+  ]
+}
