@@ -3,6 +3,8 @@ import { getInventory, getInventoryAlerts, adjustStock, generateAiPurchaseOrder 
 import { db } from "@/lib/db";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/inventory — List products with filtering
 export async function GET(request: NextRequest) {
   try {

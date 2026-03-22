@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReviewStats, processReviewQueue, getSocialPosts, createSocialPost, getEmailCampaigns, createEmailCampaign, getReferralStats } from "@/lib/services/marketing";
 import type { ApiResponse } from "@/types";
+
+export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

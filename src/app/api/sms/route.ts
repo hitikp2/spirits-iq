@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { sendSms, sendBroadcastCampaign } from "@/lib/sms";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/sms — List conversations or campaign history
 export async function GET(request: NextRequest) {
   try {

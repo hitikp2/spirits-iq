@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCustomerOrders, getReorderSuggestions, getCustomerWallet, processReferral } from "@/lib/services/customer-app";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

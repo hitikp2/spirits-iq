@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateReport, assembleReportData, renderReportHTML } from "@/lib/services/report-generator";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/reports/generate — Generate and return a report
 export async function GET(request: NextRequest) {
   try {

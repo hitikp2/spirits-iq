@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClubPlans, createSubscription, cancelSubscription, curateMonthlyBox, createShipment, getCustomerShipments } from "@/lib/services/club";
 import type { ApiResponse } from "@/types";
+
+export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

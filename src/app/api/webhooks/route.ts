@@ -3,6 +3,8 @@ import { stripe } from "@/lib/payments";
 import { handleInboundSms } from "@/lib/sms";
 import { db } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 // ─── Stripe Webhook ──────────────────────────────────────
 // POST /api/webhooks/stripe
 export async function POST(request: NextRequest) {

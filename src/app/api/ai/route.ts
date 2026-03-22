@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { generateInsights } from "@/lib/ai";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/ai — Fetch existing insights
 export async function GET(request: NextRequest) {
   try {

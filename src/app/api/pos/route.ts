@@ -3,6 +3,8 @@ import { completeTransaction, createTerminalPaymentIntent } from "@/lib/payments
 import { getUpsellSuggestions } from "@/lib/ai";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 // POST /api/pos — Process a sale
 export async function POST(request: NextRequest) {
   try {

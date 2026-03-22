@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSecurityEvents, logSecurityEvent, getShrinkageReport, checkDiscrepancies } from "@/lib/services/security";
 import type { ApiResponse } from "@/types";
+
+export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

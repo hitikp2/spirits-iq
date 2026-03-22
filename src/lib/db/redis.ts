@@ -4,17 +4,27 @@ const globalForRedis = globalThis as unknown as {
   redis: Redis | undefined;
 };
 
-export const redis =
-  globalForRedis.redis ??
-  new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
-    maxRetriesPerRequest: 3,
-    retryStrategy(times) {
-      const delay = Math.min(times * 50, 2000);
-      return delay;
-    },
-  });
+function getRedis(): Redis {
+  if (!globalForRedis.redis) {
+    globalForRedis.redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+      maxRetriesPerRequest: 3,
+      lazyConnect: true,
+      retryStrategy(times) {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+    });
+  }
+  return globalForRedis.redis;
+}
 
-if (process.env.NODE_ENV !== "production") globalForRedis.redis = redis;
+export const redis = new Proxy({} as Redis, {
+  get(_, prop) {
+    const instance = getRedis();
+    const value = (instance as any)[prop];
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+});
 
 // ─── Cache Helpers ────────────────────────────────────────
 const DEFAULT_TTL = 300; // 5 minutes
