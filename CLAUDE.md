@@ -67,7 +67,7 @@ where: { quantity: { lte: db.product.fields.reorderPoint } }
 const all = await db.product.findMany({ where: { storeId, isActive: true } });
 const lowStock = all.filter(p => p.quantity <= p.reorderPoint);
 ```
-- **Known locations that had this bug**: `src/lib/services/inventory.ts` (fixed), `src/lib/ai/index.ts` (needs fix on line ~92)
+- **Known locations that had this bug**: `src/lib/services/inventory.ts` (fixed), `src/lib/ai/index.ts` (fixed — now filters in app code)
 
 ### Prisma Schema — Enum Syntax
 - **USE**: Multi-line format with each value on its own line
@@ -91,34 +91,26 @@ Every model with `storeId String` MUST have both:
 - PgBouncer transaction mode doesn't support prepared statements
 - The seed script (`scripts/seed.mjs`) uses `DIRECT_URL` to bypass PgBouncer
 
-## StoreId Resolution — Current State & Required Migration
+## StoreId Resolution — Current State (Completed)
 
-### Current (Demo Mode — To Be Removed)
-All 6 pages hardcode `const STORE_ID = "demo-store"`:
-- `src/app/(app)/dashboard/page.tsx`
-- `src/app/(app)/pos/page.tsx`
-- `src/app/(app)/inventory/page.tsx`
-- `src/app/(app)/sms/page.tsx`
-- `src/app/(app)/insights/page.tsx`
-- `src/app/(app)/settings/page.tsx`
+### Session-Based (Active)
+All 6 pages use `useSession()` to get `storeId` from JWT:
+- `src/app/(app)/dashboard/page.tsx` — `(session?.user as any)?.storeId`
+- `src/app/(app)/pos/page.tsx` — `(session?.user as any)?.storeId`
+- `src/app/(app)/inventory/page.tsx` — `(session?.user as any)?.storeId`
+- `src/app/(app)/sms/page.tsx` — `(session?.user as any)?.storeId`
+- `src/app/(app)/insights/page.tsx` — `(session?.user as any)?.storeId`
+- `src/app/(app)/settings/page.tsx` — `(session?.user as any)?.storeId`
 
-Also hardcoded in:
-- `src/app/login/page.tsx` (PIN login sends `storeId: "demo-store"`)
-- `src/app/api/populate-products/route.ts` (hardcoded)
-
-### Target (Session-Based)
-The infrastructure is already in place but not wired up:
-1. **NextAuth JWT** stores `storeId` in token (see `src/lib/auth.ts` callbacks)
-2. **Session** exposes `session.user.storeId` (via session callback)
-3. **Middleware** injects `x-store-id` header on all `/api/` requests
-4. **Migration**: Replace hardcoded `STORE_ID` with `useSession()` hook in each page
+Login page PIN flow accepts storeId as user input (no hardcoding).
+`/api/populate-products` requires CRON_SECRET and accepts storeId from body/header.
 
 ### API Routes — StoreId Source
-All 26 API routes currently read `storeId` from query params:
+All API routes read `storeId` from trusted middleware header first, with query param fallback:
 ```typescript
-const storeId = searchParams.get("storeId");
+const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
 ```
-The middleware already injects `x-store-id` header but no route reads it yet. For production, API routes should read from the header (trusted, set by middleware from JWT) rather than query params (untrusted, set by client).
+Middleware injects `x-store-id` from JWT on all `/api/*` requests.
 
 ## AI Integration
 
@@ -247,16 +239,21 @@ All 26 routes export `force-dynamic`. Key routes:
 
 ## Known Bugs & Issues
 
-### Active Bugs
-1. **`db.product.fields.reorderPoint` in AI insights** — `src/lib/ai/index.ts:92` uses invalid Prisma syntax for low-stock product query in `generateInsights()`. Will silently return wrong results.
-2. **Inventory status filter mismatch** — Frontend uses `StatusFilter = "all" | "ok" | "low" | "out"` but API route only accepts `"all" | "low" | "out"`. When user clicks "In Stock" filter, frontend sends `status=ok` which the API ignores (falls through to "all"). The filter appears to work because `getStockStatus()` filters locally, but pagination would be wrong.
-3. **Settings page uses raw fetch()** — Inconsistent with React Query pattern used by all other pages.
+### Resolved Bugs (as of 2026-03-23)
+1. ~~`db.product.fields.reorderPoint` in AI insights~~ — **FIXED**: Now filters in app code
+2. ~~Inventory status filter mismatch~~ — **FIXED**: API accepts "ok" status, aligned with frontend
+3. ~~Settings page uses raw fetch()~~ — **FIXED**: Migrated to `useSettings()` / `useEmployees()` React Query hooks
+4. ~~No `useSession()` in pages~~ — **FIXED**: All 6 pages use `useSession()` → `session.user.storeId`
+5. ~~API routes ignore middleware headers~~ — **FIXED**: All routes read `x-store-id` header first
+6. ~~Sidebar AI status hardcoded~~ — **FIXED**: Fetches live auto-reply count via `/api/sms?action=ai-stats`
+7. ~~No auth on `/api/populate-products`~~ — **FIXED**: Requires CRON_SECRET, accepts dynamic storeId
+8. ~~`adjustStock()` missing storeId check~~ — **FIXED**: Verifies product ownership before adjusting
+9. ~~`generateText()` no error handling~~ — **FIXED**: Try-catch wrapper, validates GEMINI_API_KEY
+10. ~~Twilio client no env var check~~ — **FIXED**: Conditional init, null guard in sendSms()
 
-### Design Debt
-1. **No `useSession()` in pages** — All pages hardcode `"demo-store"` instead of reading `session.user.storeId`
-2. **API routes ignore middleware headers** — Routes read `storeId` from query params, not from trusted `x-store-id` header
-3. **Sidebar AI status hardcoded** — Layout sidebar shows "3 auto-replies sent today" as static text
-4. **No auth on `/api/populate-products`** — Hardcodes `storeId = "demo-store"`, no CRON_SECRET check
+### Remaining Design Debt
+1. **Type safety on session.user** — All pages cast `(session?.user as any)?.storeId`; could add typed session interface
+2. **No cascade delete rules** — Prisma schema uses RESTRICT by default; may block store cleanup workflows
 
 ## Deployment: Railway + Docker
 
@@ -343,17 +340,11 @@ ENV NEXTAUTH_URL="http://localhost:3000"
 
 ## Next Steps — Production Readiness
 
-### Phase 1: Remove Demo Mode
-1. Replace hardcoded `STORE_ID = "demo-store"` in all 6 pages with `useSession()` → `session.user.storeId`
-2. Update API routes to read `storeId` from `x-store-id` header (set by middleware) instead of query params
-3. Remove `/api/populate-products` route or add auth
-4. Update login page PIN flow to get storeId from device registration or store selection
+### Phase 1: Remove Demo Mode — COMPLETED
+All items resolved. Pages use `useSession()`, API routes read `x-store-id` header, populate-products requires auth, PIN login accepts storeId input.
 
-### Phase 2: Fix Known Bugs
-1. Fix `db.product.fields.reorderPoint` in `src/lib/ai/index.ts:92`
-2. Fix inventory status filter — add "ok" handling to API or align frontend/backend values
-3. Migrate settings page to React Query hooks
-4. Make sidebar AI status dynamic (use real data)
+### Phase 2: Fix Known Bugs — COMPLETED
+All items resolved. Prisma field bug fixed, inventory filter aligned, settings migrated to React Query, sidebar AI status is dynamic.
 
 ### Phase 3: External Service Integration
 1. Configure Stripe webhook → `https://<domain>/api/webhooks?provider=stripe`
@@ -363,5 +354,6 @@ ENV NEXTAUTH_URL="http://localhost:3000"
 
 ### Phase 4: Multi-Tenant Support
 1. Add store selection/creation flow for new users
-2. Enforce storeId scoping at API layer (from JWT, not query params)
+2. Add typed session interface (replace `as any` casts)
 3. Add store-level feature flags (AI, SMS, delivery, e-commerce)
+4. Define cascade delete or soft-delete strategy for Store cleanup
