@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { completeTransaction } from "@/lib/payments";
 import { getUpsellSuggestions } from "@/lib/ai";
+import { db } from "@/lib/db";
 import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -9,18 +10,26 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const storeId = request.headers.get("x-store-id") || body.storeId;
+    const cashierId = request.headers.get("x-user-id") || body.cashierId;
     const {
-      storeId, registerId, cashierId, customerId,
+      customerId,
       items, paymentMethod, tip, ageVerified, verificationMethod,
     } = body;
 
     // Validation
-    if (!storeId || !registerId || !cashierId || !items?.length) {
+    if (!storeId || !cashierId || !items?.length) {
       return NextResponse.json(
         { success: false, error: "Missing required fields" } satisfies ApiResponse,
         { status: 400 }
       );
     }
+
+    // Resolve the store's active register (instead of trusting client-sent ID)
+    const register = await db.register.findFirst({
+      where: { storeId, isActive: true },
+    });
+    const registerId = register?.id || null;
 
     // For card payments via Stripe Terminal, we would create a payment intent.
     // This requires STRIPE_SECRET_KEY and a configured register with a terminal.
@@ -31,7 +40,8 @@ export async function POST(request: NextRequest) {
 
     if (
       (paymentMethod === "CARD" || paymentMethod === "APPLE_PAY" || paymentMethod === "GOOGLE_PAY") &&
-      process.env.STRIPE_SECRET_KEY
+      process.env.STRIPE_SECRET_KEY &&
+      registerId
     ) {
       try {
         const { createTerminalPaymentIntent } = await import("@/lib/payments");

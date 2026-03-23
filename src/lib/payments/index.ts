@@ -74,7 +74,7 @@ export async function processRefund(
 // This is the main function called after payment is confirmed
 export async function completeTransaction(params: {
   storeId: string;
-  registerId: string;
+  registerId: string | null;
   cashierId: string;
   customerId?: string;
   items: Array<{
@@ -119,7 +119,7 @@ export async function completeTransaction(params: {
       data: {
         transactionNum,
         storeId,
-        registerId: params.registerId,
+        registerId: params.registerId || null,
         cashierId: params.cashierId,
         customerId: params.customerId || null,
         subtotal,

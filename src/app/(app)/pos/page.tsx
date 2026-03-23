@@ -141,7 +141,6 @@ export default function POSPage() {
       saleMutation.mutate(
         {
           storeId,
-          registerId: "register-1",
           cashierId: userId,
           customerId,
           items: cart.map((i) => ({
