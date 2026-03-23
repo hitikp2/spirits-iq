@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, CreditCard, Package, MessageSquare,
@@ -196,6 +196,40 @@ export default function DashboardLayout({
                 {autoReplies} auto-{autoReplies === 1 ? "reply" : "replies"} sent today
               </div>
             </div>
+          )}
+          {/* User Profile + Sign Out */}
+          {session?.user && (
+            <div className={cn("mb-3", collapsed ? "text-center" : "flex items-center gap-2")}>
+              <div className="w-8 h-8 rounded-full bg-surface-800 border border-surface-600 flex items-center justify-center shrink-0 mx-auto">
+                <span className="font-display text-xs font-bold text-surface-300">
+                  {(session.user.name || "U").charAt(0).toUpperCase()}
+                </span>
+              </div>
+              {!collapsed && (
+                <div className="flex-1 min-w-0">
+                  <p className="font-body text-xs font-medium text-surface-200 truncate">{session.user.name}</p>
+                  <p className="font-mono text-[10px] text-surface-400 truncate">{(session.user as any)?.role}</p>
+                </div>
+              )}
+              {!collapsed && (
+                <button
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  className="p-1.5 rounded-lg text-surface-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut size={14} />
+                </button>
+              )}
+            </div>
+          )}
+          {collapsed && session?.user && (
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="w-full flex items-center justify-center py-2 mb-2 rounded-lg text-surface-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="Sign out"
+            >
+              <LogOut size={16} />
+            </button>
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}

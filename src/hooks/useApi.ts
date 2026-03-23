@@ -192,3 +192,45 @@ export function useEmployees(storeId: string) {
     enabled: !!storeId,
   });
 }
+
+// ─── Integrations ───────────────────────────────────────
+export function useIntegrations(storeId: string) {
+  return useQuery({
+    queryKey: ["integrations", storeId],
+    queryFn: () => fetcher<any[]>(`${BASE}/integrations?storeId=${storeId}`),
+    enabled: !!storeId,
+  });
+}
+
+export function useConnectIntegration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { provider: string; credentials?: Record<string, string>; config?: Record<string, any> }) =>
+      poster(`${BASE}/integrations`, { action: "connect", ...body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["integrations"] }),
+  });
+}
+
+export function useDisconnectIntegration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: string) => poster(`${BASE}/integrations`, { action: "disconnect", provider }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["integrations"] }),
+  });
+}
+
+export function useTestIntegration() {
+  return useMutation({
+    mutationFn: (provider: string) => poster<{ status: string }>(`${BASE}/integrations`, { action: "test", provider }),
+  });
+}
+
+// ─── Settings Update ────────────────────────────────────
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { storeId: string; settings: Record<string, any> }) =>
+      poster(`${BASE}/settings`, { action: "update-settings", ...body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  });
+}

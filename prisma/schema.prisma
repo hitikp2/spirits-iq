@@ -97,6 +97,7 @@ model Store {
   reportArchives   ReportArchive[]
   competitorPrices CompetitorPrice[]
   reviewRequests   ReviewRequest[]
+  integrations     StoreIntegration[]
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
@@ -1258,4 +1259,20 @@ model ReportArchive {
   data      Json?
   createdAt DateTime @default(now())
   @@index([storeId, createdAt])
+}
+
+model StoreIntegration {
+  id           String   @id @default(cuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id])
+  provider     String
+  isActive     Boolean  @default(false)
+  credentials  String?
+  config       Json?
+  connectedAt  DateTime?
+  connectedBy  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@unique([storeId, provider])
+  @@index([storeId])
 }
