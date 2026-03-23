@@ -280,7 +280,7 @@ export default function InventoryPage() {
             </div>
           </form>
         </div>
-      )
+      )}
 
       {criticalAlerts.length > 0 && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-2xl overflow-hidden">

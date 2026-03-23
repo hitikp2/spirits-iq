@@ -15,6 +15,7 @@ const fontBody = Nunito_Sans({
   weight: ["300", "400", "500", "600", "700"],
   variable: "--font-body",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 const fontMono = IBM_Plex_Mono({
