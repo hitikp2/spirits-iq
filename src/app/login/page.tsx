@@ -115,7 +115,7 @@ function LoginContent() {
 
         {/* Email Login Form */}
         {mode === "email" && (
-          <div onSubmit={handleEmailLogin}>
+          <form onSubmit={handleEmailLogin}>
             <div className="space-y-4">
               <div>
                 <label className="block font-body text-xs text-surface-300 uppercase tracking-wider mb-2">
@@ -142,14 +142,14 @@ function LoginContent() {
                 />
               </div>
               <button
-                onClick={handleEmailLogin}
+                type="submit"
                 disabled={loading || !email || !password}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-brand to-brand-dark text-black font-body text-sm font-bold transition-all hover:shadow-lg hover:shadow-brand/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Signing in..." : "Sign In"}
               </button>
             </div>
-          </div>
+          </form>
         )}
 
         {/* PIN Login */}

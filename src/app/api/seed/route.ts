@@ -1,16 +1,27 @@
-import { PrismaClient } from "@prisma/client";
+export const dynamic = "force-dynamic";
+
+import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient();
+export async function POST(request: Request) {
+  // Only allow seeding with the CRON_SECRET for security
+  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
 
-async function main() {
-  console.log("🌱 Seeding SPIRITS IQ database...\n");
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  // ─── Store ─────────────────────────────────────────────
-  const store = await prisma.store.upsert({
-    where: { id: "demo-store" },
-    update: {},
-    create: {
+  // Check if already seeded
+  const existingStore = await db.store.findUnique({ where: { id: "demo-store" } });
+  if (existingStore) {
+    return Response.json({ message: "Database already seeded", storeId: existingStore.id });
+  }
+
+  const passwordHash = await bcrypt.hash("demo1234", 12);
+
+  const store = await db.store.create({
+    data: {
       id: "demo-store",
       name: "Highland Spirits",
       slug: "highland-spirits",
@@ -41,24 +52,17 @@ async function main() {
       },
     },
   });
-  console.log(`✅ Store: ${store.name}`);
 
-  // ─── Users ─────────────────────────────────────────────
-  const passwordHash = await bcrypt.hash("demo1234", 12);
-  const users = await Promise.all([
-    prisma.user.create({ data: { email: "owner@highlandspirits.com", name: "Alex Rivera", passwordHash, role: "OWNER", pin: "1234", storeId: store.id } }),
-    prisma.user.create({ data: { email: "manager@highlandspirits.com", name: "Jordan Chen", passwordHash, role: "MANAGER", pin: "5678", storeId: store.id } }),
-    prisma.user.create({ data: { email: "cashier@highlandspirits.com", name: "Sam Torres", passwordHash, role: "CASHIER", pin: "0000", storeId: store.id } }),
+  await Promise.all([
+    db.user.create({ data: { email: "owner@highlandspirits.com", name: "Alex Rivera", passwordHash, role: "OWNER", pin: "1234", storeId: store.id } }),
+    db.user.create({ data: { email: "manager@highlandspirits.com", name: "Jordan Chen", passwordHash, role: "MANAGER", pin: "5678", storeId: store.id } }),
+    db.user.create({ data: { email: "cashier@highlandspirits.com", name: "Sam Torres", passwordHash, role: "CASHIER", pin: "0000", storeId: store.id } }),
   ]);
-  console.log(`✅ Users: ${users.length} created`);
 
-  // ─── Register ──────────────────────────────────────────
-  const register = await prisma.register.create({
+  await db.register.create({
     data: { name: "Register 1", storeId: store.id, isActive: true },
   });
-  console.log(`✅ Register: ${register.name}`);
 
-  // ─── Categories ────────────────────────────────────────
   const categories = await Promise.all(
     [
       { name: "Bourbon", slug: "bourbon", icon: "🥃", sortOrder: 1 },
@@ -71,21 +75,17 @@ async function main() {
       { name: "Beer", slug: "beer", icon: "🍺", sortOrder: 8 },
       { name: "Seltzer", slug: "seltzer", icon: "🥤", sortOrder: 9 },
       { name: "Mixers", slug: "mixers", icon: "🧃", sortOrder: 10 },
-    ].map((c) => prisma.category.create({ data: { ...c, storeId: store.id } }))
+    ].map((c) => db.category.create({ data: { ...c, storeId: store.id } }))
   );
-  console.log(`✅ Categories: ${categories.length}`);
 
   const catMap = Object.fromEntries(categories.map((c) => [c.slug, c.id]));
 
-  // ─── Suppliers ─────────────────────────────────────────
   const suppliers = await Promise.all([
-    prisma.supplier.create({ data: { name: "SoCal Spirits Dist.", contactName: "Maria Lopez", email: "orders@socalspirits.com", phone: "+13105551200", leadTimeDays: 2, storeId: store.id } }),
-    prisma.supplier.create({ data: { name: "Pacific Wine Merchants", contactName: "David Park", email: "sales@pacificwine.com", phone: "+13105551300", leadTimeDays: 3, storeId: store.id } }),
-    prisma.supplier.create({ data: { name: "West Coast Beverage Co.", contactName: "Tom Ellis", email: "orders@wcbev.com", phone: "+13105551400", leadTimeDays: 4, storeId: store.id } }),
+    db.supplier.create({ data: { name: "SoCal Spirits Dist.", contactName: "Maria Lopez", email: "orders@socalspirits.com", phone: "+13105551200", leadTimeDays: 2, storeId: store.id } }),
+    db.supplier.create({ data: { name: "Pacific Wine Merchants", contactName: "David Park", email: "sales@pacificwine.com", phone: "+13105551300", leadTimeDays: 3, storeId: store.id } }),
+    db.supplier.create({ data: { name: "West Coast Beverage Co.", contactName: "Tom Ellis", email: "orders@wcbev.com", phone: "+13105551400", leadTimeDays: 4, storeId: store.id } }),
   ]);
-  console.log(`✅ Suppliers: ${suppliers.length}`);
 
-  // ─── Products ──────────────────────────────────────────
   const products = [
     { sku: "BT-001", name: "Buffalo Trace", brand: "Buffalo Trace", categoryId: catMap.bourbon, costPrice: 19.5, retailPrice: 29.99, quantity: 48, size: "750ml", abv: 45.0, reorderPoint: 12, supplierId: suppliers[0].id, tags: ["staff-pick", "best-seller"] },
     { sku: "ET-001", name: "EH Taylor Small Batch", brand: "EH Taylor", categoryId: catMap.bourbon, costPrice: 28.0, retailPrice: 41.99, quantity: 12, size: "750ml", abv: 50.0, reorderPoint: 4, supplierId: suppliers[0].id, tags: ["premium"] },
@@ -108,23 +108,16 @@ async function main() {
 
   for (const p of products) {
     const margin = p.retailPrice > 0 ? ((p.retailPrice - p.costPrice) / p.retailPrice) * 100 : 0;
-    await prisma.product.create({
+    await db.product.create({
       data: { ...p, storeId: store.id, margin, isActive: true, isAgeRestricted: p.isAgeRestricted ?? true },
     });
   }
-  console.log(`✅ Products: ${products.length}`);
 
-  // ─── Customers ─────────────────────────────────────────
-  const customers = await Promise.all([
-    prisma.customer.create({ data: { phone: "+13105550142", firstName: "Mike", lastName: "R.", storeId: store.id, tier: "VIP", tags: ["bourbon-lover", "vip"], loyaltyPoints: 2480, totalSpent: 4250.00, visitCount: 38, smsOptedIn: true, smsOptInDate: new Date("2024-01-15") } }),
-    prisma.customer.create({ data: { phone: "+13105550298", firstName: "Sarah", lastName: "L.", storeId: store.id, tier: "WINE_CLUB", tags: ["wine-club", "red-wine"], loyaltyPoints: 1820, totalSpent: 3100.00, visitCount: 26, smsOptedIn: true, smsOptInDate: new Date("2024-02-20") } }),
-    prisma.customer.create({ data: { phone: "+13105550417", firstName: "David", lastName: "K.", storeId: store.id, tier: "REGULAR", tags: ["tequila"], loyaltyPoints: 640, totalSpent: 890.00, visitCount: 12, smsOptedIn: true, smsOptInDate: new Date("2024-06-10") } }),
+  await Promise.all([
+    db.customer.create({ data: { phone: "+13105550142", firstName: "Mike", lastName: "R.", storeId: store.id, tier: "VIP", tags: ["bourbon-lover", "vip"], loyaltyPoints: 2480, totalSpent: 4250.00, visitCount: 38, smsOptedIn: true, smsOptInDate: new Date("2024-01-15") } }),
+    db.customer.create({ data: { phone: "+13105550298", firstName: "Sarah", lastName: "L.", storeId: store.id, tier: "WINE_CLUB", tags: ["wine-club", "red-wine"], loyaltyPoints: 1820, totalSpent: 3100.00, visitCount: 26, smsOptedIn: true, smsOptInDate: new Date("2024-02-20") } }),
+    db.customer.create({ data: { phone: "+13105550417", firstName: "David", lastName: "K.", storeId: store.id, tier: "REGULAR", tags: ["tequila"], loyaltyPoints: 640, totalSpent: 890.00, visitCount: 12, smsOptedIn: true, smsOptInDate: new Date("2024-06-10") } }),
   ]);
-  console.log(`✅ Customers: ${customers.length}`);
 
-  console.log("\n🎉 Seed complete! Run `npm run dev` to start.\n");
+  return Response.json({ message: "Database seeded successfully", storeId: store.id });
 }
-
-main()
-  .catch((e) => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
