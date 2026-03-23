@@ -86,12 +86,8 @@ export async function generateInsights(storeId: string) {
       orderBy: { createdAt: "desc" },
     }),
     db.product.findMany({
-      where: {
-        storeId,
-        isActive: true,
-        quantity: { lte: db.product.fields.reorderPoint },
-      },
-    }),
+      where: { storeId, isActive: true },
+    }).then(products => products.filter(p => p.quantity <= p.reorderPoint)),
     db.product.findMany({
       where: { storeId, isActive: true },
       orderBy: { velocityScore: "desc" },

@@ -7,7 +7,7 @@ export function getModel(options?: {
   systemInstruction?: string;
 }) {
   return genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: "gemini-2.5-flash-lite",
     generationConfig: {
       maxOutputTokens: options?.maxOutputTokens,
     },
