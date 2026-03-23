@@ -2,9 +2,9 @@ import Stripe from "stripe";
 import { db } from "@/lib/db";
 import { cacheDelete } from "@/lib/db/redis";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-04-10",
-});
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" })
+  : (null as unknown as Stripe);
 
 // ─── Card-Present Payment (Stripe Terminal) ──────────────
 export async function createTerminalPaymentIntent(

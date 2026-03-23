@@ -55,6 +55,13 @@ export default function InventoryPage() {
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustType, setAdjustType] = useState<"add" | "remove" | "set">("add");
   const [adjustReason, setAdjustReason] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    name: "", brand: "", sku: "", categoryId: "",
+    costPrice: "", retailPrice: "", quantity: "", reorderPoint: "5",
+    size: "", abv: "", tags: "",
+  });
 
   const { data: products, isLoading } = useInventory(storeId);
   const { data: alerts } = useInventoryAlerts(storeId);
@@ -120,6 +127,41 @@ export default function InventoryPage() {
     aiReorder.mutate({ storeId, performedBy: userId });
   }
 
+  async function handleAddProduct(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newProduct.name || !newProduct.sku || !newProduct.retailPrice) return;
+    setAddLoading(true);
+    try {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          storeId,
+          name: newProduct.name,
+          brand: newProduct.brand,
+          sku: newProduct.sku,
+          categoryId: newProduct.categoryId || undefined,
+          costPrice: parseFloat(newProduct.costPrice) || 0,
+          retailPrice: parseFloat(newProduct.retailPrice) || 0,
+          quantity: parseInt(newProduct.quantity) || 0,
+          reorderPoint: parseInt(newProduct.reorderPoint) || 5,
+          size: newProduct.size || undefined,
+          abv: newProduct.abv ? parseFloat(newProduct.abv) : undefined,
+          tags: newProduct.tags ? newProduct.tags.split(",").map((t: string) => t.trim()) : [],
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setShowAddForm(false);
+        setNewProduct({ name: "", brand: "", sku: "", categoryId: "", costPrice: "", retailPrice: "", quantity: "", reorderPoint: "5", size: "", abv: "", tags: "" });
+        // Trigger refetch
+        window.location.reload();
+      }
+    } catch {}
+    setAddLoading(false);
+  }
+
   const statusColors: Record<string, string> = {
     success: "bg-emerald-500/15 text-success border border-emerald-500/30",
     brand: "bg-amber-500/15 text-brand border border-amber-500/30",
@@ -135,28 +177,110 @@ export default function InventoryPage() {
             {productList.length} products tracked
           </p>
         </div>
-        <button
-          onClick={handleAiReorder}
-          disabled={aiReorder.isPending}
-          className={cn(
-            "flex items-center gap-2 px-5 py-2.5 rounded-xl font-display text-sm font-semibold transition-all",
-            "bg-brand text-surface-950 hover:brightness-110",
-            aiReorder.isPending && "opacity-50 cursor-not-allowed"
-          )}
-        >
-          {aiReorder.isPending ? (
-            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          ) : (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-display text-sm font-semibold bg-surface-800 border border-surface-600 text-surface-100 hover:border-brand hover:text-brand transition-all"
+          >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-          )}
-          AI Reorder
-        </button>
+            Add Product
+          </button>
+          <button
+            onClick={handleAiReorder}
+            disabled={aiReorder.isPending}
+            className={cn(
+              "flex items-center gap-2 px-5 py-2.5 rounded-xl font-display text-sm font-semibold transition-all",
+              "bg-brand text-surface-950 hover:brightness-110",
+              aiReorder.isPending && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            {aiReorder.isPending ? (
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              </svg>
+            )}
+            AI Reorder
+          </button>
+        </div>
       </div>
+
+      {/* Add Product Form */}
+      {showAddForm && (
+        <div className="bg-surface-900 border border-brand/30 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-lg font-bold text-surface-100">Add New Product</h2>
+            <button onClick={() => setShowAddForm(false)} className="text-surface-400 hover:text-surface-100">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <form onSubmit={handleAddProduct} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Name *</label>
+              <input type="text" required value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-body text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Brand</label>
+              <input type="text" value={newProduct.brand} onChange={(e) => setNewProduct({ ...newProduct, brand: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-body text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">SKU *</label>
+              <input type="text" required value={newProduct.sku} onChange={(e) => setNewProduct({ ...newProduct, sku: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Cost Price</label>
+              <input type="number" step="0.01" min="0" value={newProduct.costPrice} onChange={(e) => setNewProduct({ ...newProduct, costPrice: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Retail Price *</label>
+              <input type="number" step="0.01" min="0" required value={newProduct.retailPrice} onChange={(e) => setNewProduct({ ...newProduct, retailPrice: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Quantity</label>
+              <input type="number" min="0" value={newProduct.quantity} onChange={(e) => setNewProduct({ ...newProduct, quantity: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Size (e.g. 750ml)</label>
+              <input type="text" value={newProduct.size} onChange={(e) => setNewProduct({ ...newProduct, size: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-body text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">ABV %</label>
+              <input type="number" step="0.1" min="0" max="100" value={newProduct.abv} onChange={(e) => setNewProduct({ ...newProduct, abv: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Tags (comma-separated)</label>
+              <input type="text" value={newProduct.tags} onChange={(e) => setNewProduct({ ...newProduct, tags: e.target.value })} placeholder="premium, staff-pick"
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-body text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3 flex justify-end gap-3">
+              <button type="button" onClick={() => setShowAddForm(false)}
+                className="px-5 py-2.5 rounded-xl font-display text-sm font-semibold bg-surface-800 text-surface-300 hover:text-surface-100 transition-colors">
+                Cancel
+              </button>
+              <button type="submit" disabled={addLoading}
+                className="px-5 py-2.5 rounded-xl font-display text-sm font-semibold bg-brand text-surface-950 hover:brightness-110 disabled:opacity-50 transition-all">
+                {addLoading ? "Adding..." : "Add Product"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )
 
       {criticalAlerts.length > 0 && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-2xl overflow-hidden">

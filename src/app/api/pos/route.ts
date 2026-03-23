@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { completeTransaction, createTerminalPaymentIntent } from "@/lib/payments";
+import { completeTransaction } from "@/lib/payments";
 import { getUpsellSuggestions } from "@/lib/ai";
 import type { ApiResponse } from "@/types";
 
@@ -22,25 +22,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // For card payments, create a Stripe Terminal payment intent first
+    // For card payments via Stripe Terminal, we would create a payment intent.
+    // This requires STRIPE_SECRET_KEY and a configured register with a terminal.
+    // For now, card payments are recorded without Stripe processing.
     let stripePaymentId: string | undefined;
     let cardLast4: string | undefined;
     let cardBrand: string | undefined;
 
-    if (paymentMethod === "CARD" || paymentMethod === "APPLE_PAY" || paymentMethod === "GOOGLE_PAY") {
-      const subtotal = items.reduce(
-        (s: number, i: { unitPrice: number; quantity: number }) => s + i.unitPrice * i.quantity,
-        0
-      );
-      const totalCents = Math.round(subtotal * 1.0975 * 100); // Including tax
-
-      const pi = await createTerminalPaymentIntent(totalCents, registerId, {
-        cashierId,
-        customerId: customerId || "",
-      });
-
-      stripePaymentId = pi.id;
-      // In production, cardLast4 and cardBrand come from the Terminal SDK callback
+    if (
+      (paymentMethod === "CARD" || paymentMethod === "APPLE_PAY" || paymentMethod === "GOOGLE_PAY") &&
+      process.env.STRIPE_SECRET_KEY
+    ) {
+      try {
+        const { createTerminalPaymentIntent } = await import("@/lib/payments");
+        const subtotal = items.reduce(
+          (s: number, i: { unitPrice: number; quantity: number }) => s + i.unitPrice * i.quantity,
+          0
+        );
+        const totalCents = Math.round(subtotal * 1.0975 * 100);
+        const pi = await createTerminalPaymentIntent(totalCents, registerId, {
+          cashierId,
+          customerId: customerId || "",
+        });
+        stripePaymentId = pi.id;
+      } catch (stripeErr) {
+        console.warn("Stripe Terminal not available, recording card sale without payment processing:", stripeErr);
+      }
     }
 
     const transaction = await completeTransaction({

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, CreditCard, Package, MessageSquare,
-  Brain, Settings, Bell, ChevronLeft, ChevronRight, LogOut,
+  Brain, Settings, Bell, ChevronLeft, ChevronRight, LogOut, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { id: "inventory", label: "Inventory", icon: Package, href: "/inventory" },
   { id: "sms", label: "SMS / AI Chat", icon: MessageSquare, href: "/sms" },
   { id: "insights", label: "AI Insights", icon: Brain, href: "/insights" },
+  { id: "features", label: "Features", icon: Sparkles, href: "/features" },
   { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
 ];
 
@@ -72,7 +73,7 @@ export default function DashboardLayout({
         {/* Bottom Tab Bar */}
         <nav className="fixed bottom-0 inset-x-0 z-40 glass border-t border-surface-600">
           <div className="flex justify-around items-center py-2 pb-5">
-            {NAV_ITEMS.slice(0, 5).map((item) => {
+            {NAV_ITEMS.slice(0, 6).map((item) => {
               const Icon = item.icon;
               const active = pathname.startsWith(item.href);
               return (

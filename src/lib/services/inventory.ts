@@ -6,7 +6,7 @@ export async function getInventory(
   storeId: string,
   options?: {
     categoryId?: string;
-    status?: "all" | "low" | "out";
+    status?: "all" | "ok" | "low" | "out";
     search?: string;
     page?: number;
     limit?: number;
@@ -28,6 +28,20 @@ export async function getInventory(
   }
   if (status === "out") {
     where.quantity = 0;
+  }
+
+  // For "ok" status, fetch all and filter in-stock items above reorder point.
+  // Prisma doesn't support field-to-field comparisons in where clauses.
+  if (status === "ok") {
+    const allProducts = await db.product.findMany({
+      where: where as any,
+      include: { category: true, supplier: true },
+      orderBy: { [sortBy]: sortDir },
+    });
+    const okStock = allProducts.filter((p) => p.quantity > p.reorderPoint);
+    const total = okStock.length;
+    const products = okStock.slice((page - 1) * limit, page * limit);
+    return { products, meta: { page, limit, total, hasMore: page * limit < total } };
   }
 
   // For "low" status, we need to compare quantity vs reorderPoint (column-to-column).
