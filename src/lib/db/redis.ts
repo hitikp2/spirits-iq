@@ -4,23 +4,34 @@ const globalForRedis = globalThis as unknown as {
   redis: Redis | undefined;
 };
 
-function getRedis(): Redis {
+// Only connect to Redis if REDIS_URL is explicitly configured
+function getRedis(): Redis | null {
+  if (!process.env.REDIS_URL) return null;
   if (!globalForRedis.redis) {
-    globalForRedis.redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+    globalForRedis.redis = new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: 3,
       lazyConnect: true,
       retryStrategy(times) {
+        if (times > 3) return null; // Stop retrying after 3 attempts
         const delay = Math.min(times * 50, 2000);
         return delay;
       },
+    });
+    globalForRedis.redis.on("error", () => {
+      // Suppress unhandled error events to prevent crash
     });
   }
   return globalForRedis.redis;
 }
 
+// Proxy that returns no-op results when Redis is unavailable
 export const redis = new Proxy({} as Redis, {
   get(_, prop) {
     const instance = getRedis();
+    if (!instance) {
+      // Return no-op functions when Redis is not configured
+      return typeof prop === "string" ? () => Promise.resolve(null) : undefined;
+    }
     const value = (instance as any)[prop];
     return typeof value === "function" ? value.bind(instance) : value;
   },
