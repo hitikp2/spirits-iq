@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get("storeId");
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
     const action = searchParams.get("action");
 
     if (!storeId) {
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     const result = await getInventory(storeId, {
       categoryId: searchParams.get("categoryId") || undefined,
-      status: (searchParams.get("status") as "all" | "low" | "out") || "all",
+      status: (searchParams.get("status") as "all" | "ok" | "low" | "out") || "all",
       search: searchParams.get("search") || undefined,
       page: parseInt(searchParams.get("page") || "1"),
       limit: parseInt(searchParams.get("limit") || "50"),

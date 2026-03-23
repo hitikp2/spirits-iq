@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get("storeId");
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
     const search = searchParams.get("search");
     const tier = searchParams.get("tier");
     const page = parseInt(searchParams.get("page") || "1");

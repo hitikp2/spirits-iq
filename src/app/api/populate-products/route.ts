@@ -10,7 +10,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const storeId = "demo-store";
+  const body = await request.json().catch(() => ({}));
+  const storeId = (body as any)?.storeId || request.headers.get("x-store-id");
+  if (!storeId) {
+    return Response.json({ error: "storeId is required (pass in body or x-store-id header)" }, { status: 400 });
+  }
+
   const store = await db.store.findUnique({ where: { id: storeId } });
   if (!store) {
     return Response.json({ error: "Store not found. Run seed first." }, { status: 404 });

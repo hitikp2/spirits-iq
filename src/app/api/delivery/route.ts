@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get("storeId");
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
     const action = searchParams.get("action") || "active";
 
     if (!storeId) return NextResponse.json({ success: false, error: "storeId required" } satisfies ApiResponse, { status: 400 });

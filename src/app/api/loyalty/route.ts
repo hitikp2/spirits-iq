@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get("storeId");
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
     const customerId = searchParams.get("customerId");
 
     if (!storeId || !customerId) {

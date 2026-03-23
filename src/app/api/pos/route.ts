@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
-    const storeId = searchParams.get("storeId");
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
 
     if (action === "upsell") {
       const productIds = searchParams.get("productIds")?.split(",") || [];

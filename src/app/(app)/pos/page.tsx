@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { useInventory, useProcessSale, useUpsellSuggestion } from "@/hooks/useApi";
 import { formatCurrency, cn } from "@/lib/utils";
 
-const STORE_ID = "demo-store";
 const TAX_RATE = 0.0975;
 
 interface CartItem {
@@ -30,19 +30,22 @@ interface Product {
 }
 
 export default function POSPage() {
+  const { data: session } = useSession();
+  const storeId = (session?.user as any)?.storeId ?? "";
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [saleSuccess, setSaleSuccess] = useState(false);
 
-  const { data: products = [], isLoading } = useInventory(STORE_ID) as {
+  const { data: products = [], isLoading } = useInventory(storeId) as {
     data: Product[];
     isLoading: boolean;
   };
   const saleMutation = useProcessSale();
 
   const cartProductIds = useMemo(() => cart.map((i) => i.productId), [cart]);
-  const { data: upsells } = useUpsellSuggestion(STORE_ID, cartProductIds) as {
+  const { data: upsells } = useUpsellSuggestion(storeId, cartProductIds) as {
     data: Array<{ productId: string; name: string; reason: string }> | undefined;
   };
 
@@ -130,7 +133,7 @@ export default function POSPage() {
 
       saleMutation.mutate(
         {
-          storeId: STORE_ID,
+          storeId,
           registerId: "register-1",
           cashierId: "demo-cashier",
           items: cart.map((i) => ({

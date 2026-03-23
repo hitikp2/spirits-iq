@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useSession } from "next-auth/react";
 import {
   useInventory,
   useInventoryAlerts,
@@ -8,8 +9,6 @@ import {
   useAiReorder,
 } from "@/hooks/useApi";
 import { formatCurrency, cn, getStockStatus, calcMargin } from "@/lib/utils";
-
-const STORE_ID = "demo-store";
 
 type StatusFilter = "all" | "ok" | "low" | "out";
 type SortKey = "name" | "quantity" | "retailPrice" | "margin";
@@ -44,6 +43,10 @@ interface Alert {
 }
 
 export default function InventoryPage() {
+  const { data: session } = useSession();
+  const storeId = (session?.user as any)?.storeId ?? "";
+  const userId = (session?.user as any)?.id ?? "";
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -53,8 +56,8 @@ export default function InventoryPage() {
   const [adjustType, setAdjustType] = useState<"add" | "remove" | "set">("add");
   const [adjustReason, setAdjustReason] = useState("");
 
-  const { data: products, isLoading } = useInventory(STORE_ID);
-  const { data: alerts } = useInventoryAlerts(STORE_ID);
+  const { data: products, isLoading } = useInventory(storeId);
+  const { data: alerts } = useInventoryAlerts(storeId);
   const stockAdjust = useStockAdjust();
   const aiReorder = useAiReorder();
 
@@ -102,7 +105,7 @@ export default function InventoryPage() {
     const qty = parseInt(adjustQty, 10);
     if (isNaN(qty) || qty <= 0) return;
     stockAdjust.mutate(
-      { productId, quantity: qty, type: adjustType, reason: adjustReason, performedBy: "demo-user" },
+      { productId, quantity: qty, type: adjustType, reason: adjustReason, performedBy: userId },
       {
         onSuccess: () => {
           setAdjustingId(null);
@@ -114,7 +117,7 @@ export default function InventoryPage() {
   }
 
   function handleAiReorder() {
-    aiReorder.mutate({ storeId: STORE_ID, performedBy: "demo-user" });
+    aiReorder.mutate({ storeId, performedBy: userId });
   }
 
   const statusColors: Record<string, string> = {

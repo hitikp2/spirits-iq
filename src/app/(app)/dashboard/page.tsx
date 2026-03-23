@@ -1,5 +1,6 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useDashboard, useInsights } from "@/hooks/useApi";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 import Link from "next/link";
@@ -8,12 +9,12 @@ import {
   ShoppingCart, Smartphone, Brain, ArrowRight,
 } from "lucide-react";
 
-// Placeholder storeId — in production this comes from session
-const STORE_ID = "demo-store";
-
 export default function DashboardPage() {
-  const { data, isLoading } = useDashboard(STORE_ID);
-  const { data: insights } = useInsights(STORE_ID);
+  const { data: session } = useSession();
+  const storeId = (session?.user as any)?.storeId ?? "";
+
+  const { data, isLoading } = useDashboard(storeId);
+  const { data: insights } = useInsights(storeId);
 
   const statCards = [
     {

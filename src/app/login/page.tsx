@@ -17,6 +17,7 @@ function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pin, setPin] = useState("");
+  const [pinStoreId, setPinStoreId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -44,12 +45,17 @@ function LoginContent() {
 
   const handlePinLogin = async (pinValue: string) => {
     if (pinValue.length !== 4) return;
+    if (!pinStoreId.trim()) {
+      setError("Enter a Store ID first");
+      setPin("");
+      return;
+    }
     setLoading(true);
     setError("");
 
     const res = await signIn("pin", {
       pin: pinValue,
-      storeId: "demo-store", // In production, this comes from device registration
+      storeId: pinStoreId.trim(),
       redirect: false,
     });
 
@@ -155,6 +161,18 @@ function LoginContent() {
         {/* PIN Login */}
         {mode === "pin" && (
           <div className="text-center">
+            <div className="mb-5">
+              <label className="block font-body text-xs text-surface-300 uppercase tracking-wider mb-2 text-left">
+                Store ID
+              </label>
+              <input
+                type="text"
+                value={pinStoreId}
+                onChange={(e) => setPinStoreId(e.target.value)}
+                placeholder="your-store-id"
+                className="w-full px-4 py-3 rounded-xl bg-surface-800 border border-surface-600 text-surface-100 font-body text-sm outline-none focus:border-brand/50 transition-colors"
+              />
+            </div>
             <p className="font-body text-sm text-surface-300 mb-6">
               Enter your 4-digit PIN
             </p>

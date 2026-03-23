@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get("storeId"); const action = searchParams.get("action") || "events";
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId"); const action = searchParams.get("action") || "events";
     if (!storeId) return NextResponse.json({ success: false, error: "storeId required" } satisfies ApiResponse, { status: 400 });
     if (action === "events") return NextResponse.json({ success: true, ...(await getSecurityEvents(storeId, { hours: parseInt(searchParams.get("hours") || "24") })) } satisfies ApiResponse);
     if (action === "shrinkage") return NextResponse.json({ success: true, data: await getShrinkageReport(storeId) } satisfies ApiResponse);

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const storeId = searchParams.get("storeId");
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
     const type = searchParams.get("type") as "daily" | "weekly" | "monthly";
     const format = searchParams.get("format") || "html"; // "html" or "json"
     const date = searchParams.get("date");

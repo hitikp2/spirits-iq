@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { useInsights, useGenerateInsights, useUpdateInsight } from "@/hooks/useApi";
 import { cn, timeAgo } from "@/lib/utils";
-
-const STORE_ID = "demo-store";
 
 type FilterTab = "all" | "new" | "applied" | "dismissed";
 
@@ -68,8 +67,11 @@ interface Insight {
 }
 
 export default function Page() {
+  const { data: session } = useSession();
+  const storeId = (session?.user as any)?.storeId ?? "";
+
   const [filter, setFilter] = useState<FilterTab>("all");
-  const { data, isLoading } = useInsights(STORE_ID);
+  const { data, isLoading } = useInsights(storeId);
   const generateInsights = useGenerateInsights();
   const updateInsight = useUpdateInsight();
 
@@ -89,7 +91,7 @@ export default function Page() {
           </p>
         </div>
         <button
-          onClick={() => generateInsights.mutate(STORE_ID)}
+          onClick={() => generateInsights.mutate(storeId)}
           disabled={generateInsights.isPending}
           className={cn(
             "flex items-center gap-2 px-5 py-2.5 rounded-xl font-body text-sm font-semibold transition-colors",
@@ -152,7 +154,7 @@ export default function Page() {
             Generate AI-powered insights to discover opportunities
           </p>
           <button
-            onClick={() => generateInsights.mutate(STORE_ID)}
+            onClick={() => generateInsights.mutate(storeId)}
             disabled={generateInsights.isPending}
             className="px-5 py-2.5 rounded-xl bg-brand text-surface-950 font-body text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-50"
           >

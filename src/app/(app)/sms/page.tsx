@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { useConversations, useSendMessage } from "@/hooks/useApi";
 import { formatPhone, timeAgo, cn } from "@/lib/utils";
-
-const STORE_ID = "demo-store";
 
 interface Message {
   id: string;
@@ -35,7 +34,10 @@ const tierColors: Record<string, string> = {
 };
 
 export default function SmsPage() {
-  const { data, isLoading } = useConversations(STORE_ID);
+  const { data: session } = useSession();
+  const storeId = (session?.user as any)?.storeId ?? "";
+
+  const { data, isLoading } = useConversations(storeId);
   const sendMessage = useSendMessage();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState("");
