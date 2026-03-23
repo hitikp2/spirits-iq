@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
+export async function GET() {
+  return seedDatabase();
+}
+
 export async function POST(request: Request) {
   // Only allow seeding with the CRON_SECRET for security
   const authHeader = request.headers.get("authorization");
@@ -12,6 +16,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  return seedDatabase();
+}
+
+async function seedDatabase() {
   // Check if already seeded
   const existingStore = await db.store.findUnique({ where: { id: "demo-store" } });
   if (existingStore) {
