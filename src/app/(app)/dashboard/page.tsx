@@ -1,7 +1,8 @@
 "use client";
 
-import { useDashboard } from "@/hooks/useApi";
+import { useDashboard, useInsights } from "@/hooks/useApi";
 import { formatCurrency, formatPercent } from "@/lib/utils";
+import Link from "next/link";
 import {
   TrendingUp, TrendingDown, DollarSign, Receipt,
   ShoppingCart, Smartphone, Brain, ArrowRight,
@@ -12,6 +13,7 @@ const STORE_ID = "demo-store";
 
 export default function DashboardPage() {
   const { data, isLoading } = useDashboard(STORE_ID);
+  const { data: insights } = useInsights(STORE_ID);
 
   const statCards = [
     {
@@ -175,33 +177,43 @@ export default function DashboardPage() {
           <h3 className="font-display text-lg font-bold text-surface-100">
             AI Pulse
           </h3>
-          <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-success/15 text-success">
-            3 new insights
-          </span>
+          {(insights as any)?.length > 0 && (
+            <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-success/15 text-success">
+              {(insights as any).length} new insight{(insights as any).length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[
-            { icon: "📊", title: "Weekend Forecast", text: "Predicted 38% revenue increase Saturday" },
-            { icon: "💡", title: "Margin Opportunity", text: "Clase Azul priced $12 below local avg" },
-            { icon: "📈", title: "Trending Now", text: "Japanese whisky searches up 340% in area" },
-          ].map((ins, i) => (
+          {((insights as any) || []).slice(0, 3).map((ins: any) => (
             <div
-              key={i}
+              key={ins.id}
               className="bg-surface-800/60 border border-surface-600 rounded-xl p-4 hover:border-brand/20 transition-colors"
             >
-              <div className="text-lg mb-2">{ins.icon}</div>
+              <div className="text-lg mb-2">
+                {ins.type === "demand_forecast" ? "📊" : ins.type === "pricing" ? "💡" : "📈"}
+              </div>
               <div className="font-body text-sm font-semibold text-surface-100 mb-1">
                 {ins.title}
               </div>
               <div className="font-body text-xs text-surface-300 leading-relaxed">
-                {ins.text}
+                {ins.description}
               </div>
             </div>
           ))}
+          {(!insights || (insights as any)?.length === 0) && (
+            <div className="col-span-3 text-center py-6">
+              <p className="font-body text-sm text-surface-400">
+                No insights yet. AI will generate insights once transaction data is available.
+              </p>
+            </div>
+          )}
         </div>
-        <button className="mt-4 flex items-center gap-2 text-brand font-body text-sm font-semibold hover:gap-3 transition-all">
+        <Link
+          href="/insights"
+          className="mt-4 flex items-center gap-2 text-brand font-body text-sm font-semibold hover:gap-3 transition-all"
+        >
           View all insights <ArrowRight size={14} />
-        </button>
+        </Link>
       </div>
     </div>
   );
