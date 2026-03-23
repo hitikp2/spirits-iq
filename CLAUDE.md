@@ -58,11 +58,28 @@ Missing either side causes: `Error validating field: The relation field is missi
 
 **Models that required this fix**: MonthlyReport, Expense, TaxRecord, SecurityEvent, CompetitorPrice, ReviewRequest, SocialPost, EmailCampaign, SettingsChange, LoyaltyTransaction, CustomerLifetimeValue, ClubSubscription, ClubShipment, ReportArchive
 
+## Prisma Migrations
+
+### Strategy
+- **USE**: `prisma migrate deploy` for production (Railway start command runs this automatically)
+- **Migration files**: `prisma/migrations/0001_initial/migration.sql` (1432 lines, all 50+ models)
+- **Lock file**: `prisma/migrations/migration_lock.toml` (provider = "postgresql")
+- **Generate migration SQL**: `./node_modules/.bin/prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script`
+- **DO NOT**: Use `prisma db push` in production — it can cause data loss. Only use for dev prototyping.
+
+### Adding New Migrations
+1. Modify `prisma/schema.prisma`
+2. Run `./node_modules/.bin/prisma migrate dev --name <description>` locally
+3. Commit the generated migration SQL file
+4. Railway will auto-run `prisma migrate deploy` on startup
+
 ## Key File Locations
-- **Prisma schema**: `prisma/schema.prisma` (1000+ lines, 50+ models)
+- **Prisma schema**: `prisma/schema.prisma` (1257 lines, 50+ models, 25+ enums)
+- **Prisma migration**: `prisma/migrations/0001_initial/migration.sql`
 - **Dockerfile**: `Dockerfile` (multi-stage: deps → builder → runner)
+- **Railway config**: `railway.json` (Dockerfile builder, healthcheck, restart policy)
 - **AI module**: `src/lib/ai/gemini.ts` (uses `GEMINI_API_KEY`)
-- **API routes**: `src/app/api/`
+- **API routes**: `src/app/api/` (25 routes, all with `force-dynamic`)
 - **Types**: `src/types/index.ts`
 - **React Query hooks**: `src/hooks/useApi.ts`
 - **Services**: `src/lib/services/` (analytics, accounting, competitor-pricing, etc.)
@@ -99,4 +116,4 @@ Missing either side causes: `Error validating field: The relation field is missi
 
 ## Next.js API Routes
 - All API routes that use `request.url` or `request.nextUrl` MUST export `export const dynamic = "force-dynamic"` to prevent Next.js from trying to statically render them at build time.
-- Currently all 21 routes in `src/app/api/` have this export.
+- Currently all 25 routes in `src/app/api/` have this export (including auth and cron routes added 2026-03-23).

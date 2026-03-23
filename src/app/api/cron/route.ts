@@ -3,6 +3,8 @@ import { endOfDayJob, dailyAiJob, weeklyJob, monthlyJob } from "@/lib/services/j
 import { db } from "@/lib/db";
 import type { ApiResponse } from "@/types";
 
+export const dynamic = "force-dynamic";
+
 // POST /api/cron — Triggered by Vercel Cron or external scheduler
 // Secured by CRON_SECRET header
 export async function POST(request: NextRequest) {
