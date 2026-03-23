@@ -28,6 +28,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: campaigns } satisfies ApiResponse);
     }
 
+    if (action === "ai-stats") {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const autoReplies = await db.smsMessage.count({
+        where: {
+          direction: "OUTBOUND",
+          aiGenerated: true,
+          createdAt: { gte: todayStart },
+          customer: { storeId },
+        },
+      });
+      return NextResponse.json({ success: true, data: { autoReplies } } satisfies ApiResponse);
+    }
+
     // Get conversations — customers with recent messages
     const customers = await db.customer.findMany({
       where: {

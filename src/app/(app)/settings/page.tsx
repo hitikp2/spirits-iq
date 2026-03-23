@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { cn, formatPhone } from "@/lib/utils";
+import { useSettings, useEmployees } from "@/hooks/useApi";
 
 type Tab = "store" | "team" | "ai";
 
@@ -117,32 +118,12 @@ export default function Page() {
   const storeId = (session?.user as any)?.storeId ?? "";
 
   const [tab, setTab] = useState<Tab>("store");
-  const [store, setStore] = useState<Store | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [employees, setEmployees] = useState<Employee[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [teamLoading, setTeamLoading] = useState(true);
+  const { data: settingsData, isLoading: loading } = useSettings(storeId);
+  const { data: employeesData, isLoading: teamLoading } = useEmployees(storeId);
 
-  useEffect(() => {
-    if (!storeId) return;
-    fetch(`/api/settings?storeId=${storeId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setStore(data.store);
-        setSettings(data.settings);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [storeId]);
-
-  useEffect(() => {
-    if (!storeId) return;
-    fetch(`/api/employees?storeId=${storeId}&action=list`)
-      .then((res) => res.json())
-      .then((data) => setEmployees(Array.isArray(data) ? data : data.employees ?? []))
-      .catch(() => {})
-      .finally(() => setTeamLoading(false));
-  }, [storeId]);
+  const store = settingsData?.store ?? null;
+  const settings = settingsData?.settings ?? null;
+  const employees = Array.isArray(employeesData) ? employeesData : [];
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">

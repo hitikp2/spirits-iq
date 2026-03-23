@@ -174,3 +174,21 @@ export function useCustomerLookup() {
       poster(`${BASE}/customers`, { action: "lookup", ...body }),
   });
 }
+
+// ─── Settings ───────────────────────────────────────────
+export function useSettings(storeId: string) {
+  return useQuery({
+    queryKey: ["settings", storeId],
+    queryFn: () => fetcher<{ store: any; settings: any; storefrontConfig: any; loyaltyConfig: any }>(`${BASE}/settings?storeId=${storeId}`),
+    enabled: !!storeId,
+  });
+}
+
+// ─── Employees ──────────────────────────────────────────
+export function useEmployees(storeId: string) {
+  return useQuery({
+    queryKey: ["employees", storeId],
+    queryFn: () => fetcher<any[]>(`${BASE}/employees?storeId=${storeId}&action=list`),
+    enabled: !!storeId,
+  });
+}

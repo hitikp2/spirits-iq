@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, CreditCard, Package, MessageSquare,
   Brain, Settings, Bell, ChevronLeft, ChevronRight, LogOut, Sparkles,
@@ -27,6 +29,20 @@ export default function DashboardLayout({
   const [isMobile, setIsMobile] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const { data: session } = useSession();
+  const storeId = (session?.user as any)?.storeId ?? "";
+
+  const { data: aiStatus } = useQuery({
+    queryKey: ["ai-status", storeId],
+    queryFn: async () => {
+      const res = await fetch(`/api/sms?storeId=${storeId}&action=ai-stats`);
+      const json = await res.json();
+      return json.success ? json.data : { autoReplies: 0 };
+    },
+    enabled: !!storeId,
+    refetchInterval: 60_000,
+  });
+  const autoReplies = (aiStatus as any)?.autoReplies ?? 0;
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -177,7 +193,7 @@ export default function DashboardLayout({
               </div>
               <div className="font-body text-xs text-success">All Systems Active</div>
               <div className="font-mono text-[10px] text-surface-400 mt-0.5">
-                3 auto-replies sent today
+                {autoReplies} auto-{autoReplies === 1 ? "reply" : "replies"} sent today
               </div>
             </div>
           )}
