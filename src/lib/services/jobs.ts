@@ -19,16 +19,10 @@ export async function endOfDayJob(storeId: string) {
   console.log(`[EOD] Daily snapshot: $${snapshot.revenue} revenue, ${snapshot.transactions} txns`);
 
   // 2. Check for low stock and send notifications
-  const lowStockProducts = await db.product.findMany({
-    where: {
-      storeId,
-      isActive: true,
-      OR: [
-        { quantity: 0 },
-        { quantity: { lte: db.product.fields.reorderPoint } },
-      ],
-    },
+  const allProducts = await db.product.findMany({
+    where: { storeId, isActive: true },
   });
+  const lowStockProducts = allProducts.filter(p => p.quantity === 0 || p.quantity <= p.reorderPoint);
 
   for (const product of lowStockProducts) {
     await notifyLowStock(storeId, product.name, product.quantity);

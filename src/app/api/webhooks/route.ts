@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe } from "@/lib/payments";
 import { handleInboundSms } from "@/lib/sms";
 import { db } from "@/lib/db";
 
@@ -31,10 +30,19 @@ async function handleStripeWebhook(request: NextRequest) {
       return NextResponse.json({ error: "No signature" }, { status: 400 });
     }
 
+    if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return NextResponse.json({ error: "Stripe not configured" }, { status: 503 });
+    }
+
+    const { stripe } = await import("@/lib/payments");
+    if (!stripe) {
+      return NextResponse.json({ error: "Stripe not available" }, { status: 503 });
+    }
+
     const event = stripe.webhooks.constructEvent(
       body,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      process.env.STRIPE_WEBHOOK_SECRET
     );
 
     switch (event.type) {

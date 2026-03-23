@@ -64,7 +64,7 @@ export async function assembleReportData(
     getTopSellers(storeId, { days: type === "daily" ? 1 : type === "weekly" ? 7 : 30, limit: 10 }).catch(() => []),
     getCategoryBreakdown(storeId, type === "daily" ? 1 : type === "weekly" ? 7 : 30).catch(() => []),
     getTaxSummary(storeId).catch(() => null),
-    db.product.count({ where: { storeId, isActive: true, quantity: { gt: 0, lte: db.product.fields.reorderPoint } } }),
+    db.product.findMany({ where: { storeId, isActive: true } }).then(ps => ps.filter(p => p.quantity > 0 && p.quantity <= p.reorderPoint).length),
     db.product.count({ where: { storeId, isActive: true, quantity: 0 } }),
     db.onlineOrder.findMany({ where: { storeId, createdAt: { gte: startDate, lte: endDate }, status: { not: "CANCELLED" } } }),
     db.loyaltyTransaction.findMany({ where: { storeId, createdAt: { gte: startDate, lte: endDate } } }),
@@ -75,11 +75,11 @@ export async function assembleReportData(
   const uniqueCustomers = new Set(currentTxns.filter(t => t.customerId).map(t => t.customerId));
 
   // Inventory alerts
-  const alertProducts = await db.product.findMany({
-    where: { storeId, isActive: true, quantity: { lte: db.product.fields.reorderPoint } },
+  const allActiveProducts = await db.product.findMany({
+    where: { storeId, isActive: true },
     orderBy: { quantity: "asc" },
-    take: 5,
   });
+  const alertProducts = allActiveProducts.filter(p => p.quantity <= p.reorderPoint).slice(0, 5);
 
   // Inventory total value
   const invValue = await db.product.aggregate({
