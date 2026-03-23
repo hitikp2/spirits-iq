@@ -6,7 +6,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, CreditCard, Package, MessageSquare,
-  Brain, Settings, Bell, ChevronLeft, ChevronRight, LogOut, Sparkles,
+  Brain, Settings, Bell, ChevronLeft, ChevronRight, LogOut, Sparkles, X, Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +27,7 @@ export default function DashboardLayout({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const { data: session } = useSession();
@@ -60,17 +61,21 @@ export default function DashboardLayout({
         {/* Top Bar */}
         <header className="sticky top-0 z-40 glass border-b border-surface-600 px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center text-sm">
+            <button
+              type="button"
+              className="flex items-center gap-2.5 bg-transparent border-none"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center text-sm pointer-events-none">
                 🥃
               </div>
-              <div>
+              <div className="pointer-events-none">
                 <span className="font-display text-base font-bold tracking-wide text-surface-100">
                   SPIRITS{" "}
                 </span>
                 <span className="font-mono text-[10px] text-brand tracking-[2px]">IQ</span>
               </div>
-            </div>
+            </button>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-success/10">
                 <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
@@ -82,6 +87,108 @@ export default function DashboardLayout({
             </div>
           </div>
         </header>
+
+        {/* Mobile Drawer Overlay */}
+        {mobileMenuOpen && (
+          <div
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            {/* Drawer Panel */}
+            <aside
+              className="absolute inset-y-0 left-0 w-72 bg-surface-900 border-r border-surface-600 flex flex-col animate-in slide-in-from-left duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Drawer Header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b border-surface-600">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center text-lg">
+                    🥃
+                  </div>
+                  <div>
+                    <span className="font-display text-lg font-bold tracking-wide text-surface-100">
+                      SPIRITS
+                    </span>
+                    <span className="font-mono text-[10px] text-brand tracking-[2px] ml-1">
+                      IQ
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-8 h-8 rounded-lg bg-surface-800 border border-surface-600 flex items-center justify-center"
+                >
+                  <X size={16} className="text-surface-300" />
+                </button>
+              </div>
+
+              {/* Nav Items */}
+              <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+                {NAV_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const active = pathname.startsWith(item.href);
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        router.push(item.href);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200",
+                        active
+                          ? "bg-brand/10 text-brand border-l-[3px] border-brand"
+                          : "text-surface-300 hover:text-surface-100 hover:bg-surface-800 border-l-[3px] border-transparent"
+                      )}
+                    >
+                      <Icon size={18} className="shrink-0" />
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              {/* AI Status */}
+              <div className="px-4 py-3 border-t border-surface-600">
+                <div className="rounded-xl bg-brand/10 border border-brand/20 p-3 mb-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+                    <span className="font-mono text-[10px] text-brand tracking-wide">
+                      AI STATUS
+                    </span>
+                  </div>
+                  <div className="font-body text-xs text-success">All Systems Active</div>
+                  <div className="font-mono text-[10px] text-surface-400 mt-0.5">
+                    {autoReplies} auto-{autoReplies === 1 ? "reply" : "replies"} sent today
+                  </div>
+                </div>
+
+                {/* User + Sign Out */}
+                {session?.user && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-surface-800 border border-surface-600 flex items-center justify-center shrink-0">
+                      <span className="font-display text-xs font-bold text-surface-300">
+                        {(session.user.name || "U").charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-body text-xs font-medium text-surface-200 truncate">{session.user.name}</p>
+                      <p className="font-mono text-[10px] text-surface-400 truncate">{(session.user as any)?.role}</p>
+                    </div>
+                    <button
+                      onClick={() => signOut({ callbackUrl: "/login" })}
+                      className="p-1.5 rounded-lg text-surface-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      title="Sign out"
+                    >
+                      <LogOut size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
 
         {/* Content */}
         <main className="px-4 py-4 pb-24">{children}</main>
