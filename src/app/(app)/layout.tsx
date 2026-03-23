@@ -136,15 +136,19 @@ export default function DashboardLayout({
         )}
       >
         {/* Logo */}
-        <div
-          className="flex items-center gap-2.5 px-4 py-5 cursor-pointer"
+        <button
+          type="button"
+          className={cn(
+            "flex items-center gap-2.5 py-5 cursor-pointer w-full bg-transparent border-none",
+            collapsed ? "justify-center px-0" : "px-4"
+          )}
           onClick={() => setCollapsed(!collapsed)}
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center text-lg shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand to-brand-dark flex items-center justify-center text-lg shrink-0 pointer-events-none">
             🥃
           </div>
           {!collapsed && (
-            <div>
+            <div className="pointer-events-none">
               <span className="font-display text-lg font-bold tracking-wide text-surface-100">
                 SPIRITS
               </span>
@@ -153,7 +157,7 @@ export default function DashboardLayout({
               </span>
             </div>
           )}
-        </div>
+        </button>
 
         {/* Nav Items */}
         <nav className="flex-1 px-2 py-2 space-y-1">
