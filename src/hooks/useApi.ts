@@ -175,6 +175,32 @@ export function useCustomerLookup() {
   });
 }
 
+// ─── Reports ────────────────────────────────────────────
+export function useReportDashboard(storeId: string, days = 30) {
+  return useQuery({
+    queryKey: ["report-dashboard", storeId, days],
+    queryFn: () => fetcher<any>(`${BASE}/reports?storeId=${storeId}&action=dashboard&days=${days}`),
+    enabled: !!storeId,
+  });
+}
+
+export function useReportDaily(storeId: string, days = 7) {
+  return useQuery({
+    queryKey: ["report-daily", storeId, days],
+    queryFn: () => fetcher<any[]>(`${BASE}/reports?storeId=${storeId}&action=daily&days=${days}`),
+    enabled: !!storeId,
+  });
+}
+
+export function useGenerateMonthlyReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { storeId: string; year: number; month: number }) =>
+      poster(`${BASE}/reports`, { action: "generate-monthly", ...body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["report-dashboard"] }),
+  });
+}
+
 // ─── Settings ───────────────────────────────────────────
 export function useSettings(storeId: string) {
   return useQuery({

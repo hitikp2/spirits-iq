@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard, CreditCard, Package, MessageSquare,
   Brain, Settings, Bell, ChevronLeft, ChevronRight, LogOut, Sparkles, X, Menu,
+  Users, BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,8 +15,10 @@ const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { id: "pos", label: "Point of Sale", icon: CreditCard, href: "/pos" },
   { id: "inventory", label: "Inventory", icon: Package, href: "/inventory" },
+  { id: "customers", label: "Customers", icon: Users, href: "/customers" },
   { id: "sms", label: "SMS / AI Chat", icon: MessageSquare, href: "/sms" },
   { id: "insights", label: "AI Insights", icon: Brain, href: "/insights" },
+  { id: "reports", label: "Reports", icon: BarChart3, href: "/reports" },
   { id: "features", label: "Features", icon: Sparkles, href: "/features" },
   { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
 ];
