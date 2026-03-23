@@ -182,7 +182,11 @@ export default function Page() {
                     {Object.entries(store.operatingHours).map(([day, hours]) => (
                       <div key={day} className="flex justify-between items-center py-2 px-3 rounded-xl bg-surface-800">
                         <span className="font-body text-sm text-surface-300 capitalize">{day}</span>
-                        <span className="font-mono text-sm text-surface-100">{hours as string}</span>
+                        <span className="font-mono text-sm text-surface-100">
+                          {typeof hours === "object" && hours !== null
+                            ? `${(hours as any).open || "—"} – ${(hours as any).close || "—"}`
+                            : String(hours ?? "—")}
+                        </span>
                       </div>
                     ))}
                   </div>
