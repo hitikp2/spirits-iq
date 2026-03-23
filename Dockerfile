@@ -60,4 +60,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-CMD ["sh", "-c", "timeout 30 sh -c 'DIRECT_URL=${DIRECT_URL:-$DATABASE_URL} node node_modules/prisma/build/index.js migrate deploy' || echo 'Migration skipped or failed'; node scripts/seed.mjs || echo 'Seed skipped'; exec node server.js"]
+CMD ["sh", "-c", "export DIRECT_URL=${DIRECT_URL:-$DATABASE_URL}; timeout 30 sh -c 'node node_modules/prisma/build/index.js migrate resolve --applied 0001_initial 2>/dev/null; node node_modules/prisma/build/index.js migrate deploy' || echo 'Migration skipped or failed'; node scripts/seed.mjs || echo 'Seed skipped'; exec node server.js"]

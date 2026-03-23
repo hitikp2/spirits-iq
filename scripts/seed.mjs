@@ -3,7 +3,12 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-const db = new PrismaClient();
+// Use DIRECT_URL to bypass PgBouncer (which breaks prepared statements)
+const db = new PrismaClient({
+  datasources: {
+    db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL },
+  },
+});
 
 async function main() {
   // Check if already seeded
