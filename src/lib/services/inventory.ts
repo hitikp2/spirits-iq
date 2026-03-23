@@ -26,10 +26,22 @@ export async function getInventory(
       { brand: { contains: search, mode: "insensitive" } },
     ];
   }
-  if (status === "low") {
-    where.quantity = { gt: 0, lte: db.product.fields.reorderPoint };
-  } else if (status === "out") {
+  if (status === "out") {
     where.quantity = 0;
+  }
+
+  // For "low" status, we need to compare quantity vs reorderPoint (column-to-column).
+  // Prisma doesn't support field references in where clauses, so we fetch and filter in app code.
+  if (status === "low") {
+    const allProducts = await db.product.findMany({
+      where: where as any,
+      include: { category: true, supplier: true },
+      orderBy: { [sortBy]: sortDir },
+    });
+    const lowStock = allProducts.filter((p) => p.quantity > 0 && p.quantity <= p.reorderPoint);
+    const total = lowStock.length;
+    const products = lowStock.slice((page - 1) * limit, page * limit);
+    return { products, meta: { page, limit, total, hasMore: page * limit < total } };
   }
 
   const [products, total] = await Promise.all([
@@ -55,18 +67,15 @@ export async function getInventoryAlerts(storeId: string) {
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
 
-  const alerts = await db.product.findMany({
-    where: {
-      storeId,
-      isActive: true,
-      OR: [
-        { quantity: 0 },
-        { quantity: { lte: db.product.fields.reorderPoint } },
-      ],
-    },
+  // Fetch all active products and filter for low/out stock in app code
+  // (Prisma doesn't support column-to-column comparisons like quantity <= reorderPoint)
+  const allProducts = await db.product.findMany({
+    where: { storeId, isActive: true },
     include: { category: true, supplier: true },
     orderBy: { quantity: "asc" },
   });
+
+  const alerts = allProducts.filter((p) => p.quantity === 0 || p.quantity <= p.reorderPoint);
 
   const result = alerts.map((p) => ({
     productId: p.id,
@@ -179,15 +188,18 @@ export async function receivePurchaseOrder(
 
 // ─── AI-Generated Purchase Order ─────────────────────────
 export async function generateAiPurchaseOrder(storeId: string, performedBy: string) {
-  const lowStockProducts = await db.product.findMany({
+  // Fetch all active products with suppliers, then filter for low stock in app code
+  // (Prisma doesn't support column-to-column comparisons like quantity <= reorderPoint)
+  const allProducts = await db.product.findMany({
     where: {
       storeId,
       isActive: true,
-      quantity: { lte: db.product.fields.reorderPoint },
       supplierId: { not: null },
     },
     include: { supplier: true },
   });
+
+  const lowStockProducts = allProducts.filter((p) => p.quantity <= p.reorderPoint);
 
   if (lowStockProducts.length === 0) return null;
 
