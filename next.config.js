@@ -10,9 +10,7 @@ const nextConfig = {
       { protocol: "https", hostname: "**.cloudinary.com" },
     ],
   },
-  experimental: {
-    serverActions: { bodySizeLimit: "2mb" },
-  },
+  serverActions: { bodySizeLimit: "2mb" },
   async headers() {
     return [
       {
