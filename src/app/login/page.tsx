@@ -42,13 +42,13 @@ function LoginContent() {
     }
   };
 
-  const handlePinLogin = async () => {
-    if (pin.length !== 4) return;
+  const handlePinLogin = async (pinValue: string) => {
+    if (pinValue.length !== 4) return;
     setLoading(true);
     setError("");
 
     const res = await signIn("pin", {
-      pin,
+      pin: pinValue,
       storeId: "demo-store", // In production, this comes from device registration
       redirect: false,
     });
@@ -67,7 +67,7 @@ function LoginContent() {
     const newPin = pin + digit;
     setPin(newPin);
     if (newPin.length === 4) {
-      setTimeout(() => handlePinLogin(), 200);
+      setTimeout(() => handlePinLogin(newPin), 200);
     }
   };
 
