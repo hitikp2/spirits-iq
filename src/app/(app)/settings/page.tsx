@@ -29,11 +29,11 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 const AI_FEATURES: { key: string; label: string; description: string }[] = [
-  { key: "aiSmsAutoResponse", label: "SMS Auto-Response", description: "Automatically reply to customer text messages using AI" },
+  { key: "aiAutoResponse", label: "SMS Auto-Response", description: "Automatically reply to customer text messages using AI" },
   { key: "aiPricingSuggestions", label: "Pricing Suggestions", description: "AI-driven pricing recommendations based on market data" },
   { key: "aiDemandForecasting", label: "Demand Forecasting", description: "Predict inventory needs using historical sales patterns" },
-  { key: "ecommerce", label: "E-Commerce", description: "Online storefront for customer orders" },
-  { key: "delivery", label: "Delivery", description: "Enable delivery fulfillment for orders" },
+  { key: "deliveryEnabled", label: "Delivery", description: "Enable delivery fulfillment for orders" },
+  { key: "loyaltyEnabled", label: "Loyalty Program", description: "Points-based loyalty rewards for repeat customers" },
 ];
 
 const INTEGRATION_PROVIDERS = [
@@ -117,9 +117,9 @@ export default function Page() {
   const storeId = (session?.user as any)?.storeId ?? "";
 
   const [tab, setTab] = useState<Tab>("store");
-  const { data: settingsData, isLoading: loading } = useSettings(storeId);
-  const { data: employeesData, isLoading: teamLoading } = useEmployees(storeId);
-  const { data: integrations, isLoading: intLoading } = useIntegrations(storeId);
+  const { data: settingsData, isLoading: loading, error: settingsError } = useSettings(storeId);
+  const { data: employeesData, isLoading: teamLoading, error: teamError } = useEmployees(storeId);
+  const { data: integrations, isLoading: intLoading, error: intError } = useIntegrations(storeId);
   const updateSettings = useUpdateSettings();
 
   const store = settingsData?.store ?? null;
@@ -160,20 +160,22 @@ export default function Page() {
         <div>
           {loading ? (
             <StoreSkeleton />
+          ) : settingsError ? (
+            <EmptyState message="Failed to load store info. Please try again." />
           ) : store ? (
             <div className="space-y-4">
               <div className="rounded-2xl bg-surface-900 border border-surface-600 p-6">
                 <h2 className="font-display text-xl font-semibold text-surface-100 mb-4">{store.name}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <InfoField label="Address" value={`${store.address}, ${store.city}, ${store.state} ${store.zip}`} />
-                  <InfoField label="Phone" value={formatPhone(store.phone)} />
-                  <InfoField label="Email" value={store.email} />
-                  <InfoField label="Timezone" value={store.timezone} />
-                  <InfoField label="Tax Rate" value={`${(store.taxRate * 100).toFixed(2)}%`} />
-                  <InfoField label="License Number" value={store.licenseNumber} />
+                  <InfoField label="Address" value={`${store.address || ""}, ${store.city || ""}, ${store.state || ""} ${store.zip || ""}`} />
+                  <InfoField label="Phone" value={store.phone ? formatPhone(store.phone) : "—"} />
+                  <InfoField label="Email" value={store.email || "—"} />
+                  <InfoField label="Timezone" value={store.timezone || "—"} />
+                  <InfoField label="Tax Rate" value={`${(Number(store.taxRate || 0) * 100).toFixed(2)}%`} />
+                  <InfoField label="License Number" value={store.licenseNumber || "—"} />
                 </div>
               </div>
-              {store.operatingHours && Object.keys(store.operatingHours).length > 0 && (
+              {store.operatingHours && typeof store.operatingHours === "object" && Object.keys(store.operatingHours).length > 0 && (
                 <div className="rounded-2xl bg-surface-900 border border-surface-600 p-6">
                   <h3 className="font-display text-lg font-semibold text-surface-100 mb-4">Operating Hours</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -198,6 +200,8 @@ export default function Page() {
         <div>
           {teamLoading ? (
             <SettingsSkeleton />
+          ) : teamError ? (
+            <EmptyState message="Failed to load team data. Please try again." />
           ) : employees.length > 0 ? (
             <div className="space-y-3">
               {employees.map((emp: any) => (
@@ -208,7 +212,7 @@ export default function Page() {
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="h-10 w-10 rounded-full bg-surface-800 flex items-center justify-center shrink-0">
                       <span className="font-display text-sm font-bold text-surface-300">
-                        {emp.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+                        {(emp.name || "?").split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
                       </span>
                     </div>
                     <div className="min-w-0">
@@ -246,6 +250,8 @@ export default function Page() {
           </div>
           {intLoading ? (
             <SettingsSkeleton />
+          ) : intError ? (
+            <EmptyState message="Failed to load integrations. Please try again." />
           ) : (
             INTEGRATION_PROVIDERS.map((provider) => (
               <IntegrationCard
@@ -264,6 +270,8 @@ export default function Page() {
         <div>
           {loading ? (
             <SettingsSkeleton />
+          ) : settingsError ? (
+            <EmptyState message="Failed to load AI settings. Please try again." />
           ) : settings ? (
             <div className="space-y-3">
               {AI_FEATURES.map((feature) => (
