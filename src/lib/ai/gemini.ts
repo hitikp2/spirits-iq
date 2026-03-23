@@ -21,7 +21,16 @@ export async function generateText(
   prompt: string,
   options?: { maxOutputTokens?: number; systemInstruction?: string }
 ): Promise<string> {
-  const model = getModel(options);
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn("GEMINI_API_KEY not set — skipping AI generation");
+    return "";
+  }
+  try {
+    const model = getModel(options);
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (error) {
+    console.error("Gemini AI error:", error);
+    return "";
+  }
 }

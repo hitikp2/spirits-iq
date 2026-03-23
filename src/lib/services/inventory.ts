@@ -111,6 +111,7 @@ export async function getInventoryAlerts(storeId: string) {
 // ─── Adjust Stock ────────────────────────────────────────
 export async function adjustStock(params: {
   productId: string;
+  storeId: string;
   quantity: number; // Positive = add, Negative = remove
   type: "RESTOCK" | "ADJUSTMENT" | "DAMAGE" | "RETURN" | "AUDIT";
   reason?: string;
@@ -118,6 +119,7 @@ export async function adjustStock(params: {
 }) {
   const product = await db.product.findUnique({ where: { id: params.productId } });
   if (!product) throw new Error("Product not found");
+  if (product.storeId !== params.storeId) throw new Error("Product does not belong to this store");
 
   const newQty = Math.max(0, product.quantity + params.quantity);
 

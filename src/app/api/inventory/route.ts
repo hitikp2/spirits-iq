@@ -55,8 +55,10 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === "adjust") {
+      const storeId = request.headers.get("x-store-id") || body.storeId;
+      if (!storeId) return NextResponse.json({ success: false, error: "Missing storeId" } satisfies ApiResponse, { status: 400 });
       const { productId, quantity, type, reason, performedBy } = body;
-      const result = await adjustStock({ productId, quantity, type, reason, performedBy });
+      const result = await adjustStock({ productId, storeId, quantity, type, reason, performedBy });
       return NextResponse.json({ success: true, data: result } satisfies ApiResponse);
     }
 

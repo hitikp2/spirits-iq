@@ -653,6 +653,7 @@ model LoyaltyTransaction {
   expiresAt   DateTime?
   createdAt   DateTime       @default(now())
   @@index([customerId, createdAt])
+  @@index([storeId])
 }
 
 model LoyaltyRedemption {
@@ -1075,6 +1076,7 @@ model ClubSubscription {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
   @@index([customerId, status])
+  @@index([storeId])
 }
 
 model ClubShipment {
@@ -1093,6 +1095,7 @@ model ClubShipment {
   items          ClubShipmentItem[]
   createdAt      DateTime           @default(now())
   @@index([subscriptionId, createdAt])
+  @@index([storeId])
 }
 
 model ClubShipmentItem {
@@ -1254,4 +1257,5 @@ model ReportArchive {
   html      String
   data      Json?
   createdAt DateTime @default(now())
+  @@index([storeId, createdAt])
 }

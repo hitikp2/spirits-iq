@@ -2,10 +2,9 @@ import twilio from "twilio";
 import { db } from "@/lib/db";
 import { generateSmsResponse } from "@/lib/ai";
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+const client = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+  ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+  : null;
 
 // ─── Send SMS ────────────────────────────────────────────
 export async function sendSms(
@@ -14,6 +13,10 @@ export async function sendSms(
   customerId: string,
   options?: { campaignId?: string; aiGenerated?: boolean }
 ): Promise<string | null> {
+  if (!client) {
+    console.warn("Twilio not configured — skipping SMS send");
+    return null;
+  }
   try {
     const message = await client.messages.create({
       to,
