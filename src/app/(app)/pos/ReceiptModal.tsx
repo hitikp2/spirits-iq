@@ -23,6 +23,8 @@ interface ReceiptModalProps {
   cashierName: string;
   customerName?: string;
   customerPoints?: number;
+  ageVerified?: boolean;
+  verificationMethod?: string;
   onSendSms?: () => void;
   onSendEmail?: () => void;
 }
@@ -39,6 +41,8 @@ export default function ReceiptModal({
   cashierName,
   customerName,
   customerPoints,
+  ageVerified,
+  verificationMethod: ageMethod,
   onSendSms,
   onSendEmail,
 }: ReceiptModalProps) {
@@ -112,6 +116,8 @@ export default function ReceiptModal({
               customerName={customerName}
               customerPoints={customerPoints}
               earnPts={earnPts}
+              ageVerified={ageVerified}
+              ageMethod={ageMethod}
             />
           ) : (
             <PrintReceipt
@@ -127,6 +133,7 @@ export default function ReceiptModal({
               payLabel={payLabel}
               customerName={customerName}
               customerPoints={customerPoints}
+              ageVerified={ageVerified}
               earnPts={earnPts}
             />
           )}
@@ -160,11 +167,12 @@ export default function ReceiptModal({
 
 /* ──────────────── Digital Receipt ──────────────── */
 function DigitalReceipt({
-  items, subtotal, tax, total, orderNumber, date, time, cashierName, payLabel, customerName, customerPoints, earnPts,
+  items, subtotal, tax, total, orderNumber, date, time, cashierName, payLabel, customerName, customerPoints, earnPts, ageVerified, ageMethod,
 }: {
   items: ReceiptItem[]; subtotal: number; tax: number; total: number; orderNumber: string;
   date: string; time: string; cashierName: string; payLabel: string;
   customerName?: string; customerPoints?: number; earnPts: number;
+  ageVerified?: boolean; ageMethod?: string;
 }) {
   return (
     <div className="rounded-[20px] overflow-hidden border border-surface-700 shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
@@ -250,6 +258,12 @@ function DigitalReceipt({
           ✓ {payLabel} · Approved
         </div>
 
+        {ageVerified && (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-info/10 border border-info/[.12] rounded-lg text-[11px] font-semibold text-info mt-2 ml-1">
+            🪪 Age Verified: {ageMethod === "ID_SCAN" ? "ID Scan" : ageMethod === "MANUAL_DOB" ? "Manual DOB" : "Visual"}
+          </div>
+        )}
+
         {customerName && (
           <div className="flex items-center gap-2 p-3 bg-brand/15 border border-brand/[.12] rounded-xl mt-3.5">
             <span className="text-xl">⭐</span>
@@ -275,11 +289,11 @@ function DigitalReceipt({
 /* ──────────────── Print Receipt ──────────────── */
 function PrintReceipt({
   items, subtotal, tax, total, orderNumber, date, time, cashierName,
-  paymentMethod, payLabel, customerName, customerPoints, earnPts,
+  paymentMethod, payLabel, customerName, customerPoints, earnPts, ageVerified,
 }: {
   items: ReceiptItem[]; subtotal: number; tax: number; total: number; orderNumber: string;
   date: string; time: string; cashierName: string; paymentMethod: string; payLabel: string;
-  customerName?: string; customerPoints?: number; earnPts: number;
+  customerName?: string; customerPoints?: number; earnPts: number; ageVerified?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center py-3">
@@ -375,6 +389,12 @@ function PrintReceipt({
           <span>Auth: {100000 + Math.floor(Math.random() * 900000)}</span>
           <span>APPROVED</span>
         </div>
+
+        {ageVerified && (
+          <div className="flex justify-between text-[9px]" style={{ color: "#555", lineHeight: 1.8 }}>
+            <span>Age Verified</span><span>YES</span>
+          </div>
+        )}
 
         {customerName && (
           <>

@@ -9,6 +9,7 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 import ScannerModal from "./ScannerModal";
 import CheckoutModal from "./CheckoutModal";
 import ReceiptModal from "./ReceiptModal";
+import AgeVerificationModal from "@/components/pos/AgeVerificationModal";
 import { toast } from "sonner";
 
 const TAX_RATE = 0.0975;
@@ -372,7 +373,14 @@ export default function POSPage() {
     items: Array<{ name: string; brand?: string; size?: string; price: number; quantity: number }>;
     subtotal: number; tax: number; total: number;
     orderNumber: string; paymentMethod: string;
+    ageVerified?: boolean; verificationMethod?: string;
   } | null>(null);
+
+  // Age verification
+  const [ageVerifyOpen, setAgeVerifyOpen] = useState(false);
+  const [ageVerified, setAgeVerified] = useState(false);
+  const [verificationMethod, setVerificationMethod] = useState<string | undefined>();
+  const [ageDenied, setAgeDenied] = useState(false);
 
   const { data: products = [], isLoading } = useInventory(storeId) as {
     data: Product[];
@@ -410,6 +418,13 @@ export default function POSPage() {
       return matchesSearch && matchesCategory;
     });
   }, [products, search, activeCategory]);
+
+  // Reset age verification when cart composition changes
+  useEffect(() => {
+    setAgeVerified(false);
+    setVerificationMethod(undefined);
+    setAgeDenied(false);
+  }, [cart.length]);
 
   const addToCart = useCallback((product: Product) => {
     if (product.quantity <= 0) return;
@@ -459,6 +474,43 @@ export default function POSPage() {
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
 
+  // Check if cart has age-restricted items
+  const restrictedItems = useMemo(() => {
+    return cart
+      .map((item) => {
+        const product = products.find((p: Product) => p.id === item.productId);
+        return product?.isAgeRestricted ? { name: item.name, id: item.productId } : null;
+      })
+      .filter(Boolean) as Array<{ name: string; id: string }>;
+  }, [cart, products]);
+
+  const hasAgeRestricted = restrictedItems.length > 0;
+
+  // Handle "Charge" button — gate behind age verification if needed
+  const handleChargeClick = useCallback(() => {
+    if (cart.length === 0) return;
+    setAgeDenied(false);
+    if (hasAgeRestricted && !ageVerified) {
+      setAgeVerifyOpen(true);
+    } else {
+      setCheckoutOpen(true);
+    }
+  }, [cart, hasAgeRestricted, ageVerified]);
+
+  const handleAgeVerified = useCallback((method: string, _detail: string) => {
+    setAgeVerified(true);
+    setVerificationMethod(method);
+    setAgeVerifyOpen(false);
+    // Open checkout after successful verification
+    setCheckoutOpen(true);
+  }, []);
+
+  const handleAgeDenied = useCallback(() => {
+    setAgeVerifyOpen(false);
+    setAgeDenied(true);
+    toast.error("Sale blocked — customer failed age verification");
+  }, []);
+
   // Save order data and show receipt after successful sale
   const completeOrder = useCallback((payMethod: string) => {
     const orderItems = cart.map((item) => {
@@ -478,6 +530,8 @@ export default function POSPage() {
       total,
       orderNumber: "SIQ-" + (1000 + Math.floor(Math.random() * 9000)),
       paymentMethod: payMethod,
+      ageVerified: ageVerified || undefined,
+      verificationMethod: verificationMethod || undefined,
     });
     setCart([]);
     setCustomerId(undefined);
@@ -496,10 +550,6 @@ export default function POSPage() {
   // Cash sale — immediate, no Stripe
   const handleCashChargeInternal = useCallback(() => {
     if (cart.length === 0) return;
-    const hasAgeRestricted = cart.some((item) => {
-      const product = products.find((p: Product) => p.id === item.productId);
-      return product?.isAgeRestricted;
-    });
 
     saleMutation.mutate(
       {
@@ -513,7 +563,8 @@ export default function POSPage() {
           discount: 0,
         })),
         paymentMethod: "CASH",
-        ageVerified: hasAgeRestricted ? true : undefined,
+        ageVerified: ageVerified || undefined,
+        verificationMethod: verificationMethod || undefined,
       },
       {
         onSuccess: () => {
@@ -584,11 +635,6 @@ export default function POSPage() {
     (paymentIntentId: string, cardLast4?: string, cardBrand?: string) => {
       setNfcModal(false);
 
-      const hasAgeRestricted = cart.some((item) => {
-        const product = products.find((p: Product) => p.id === item.productId);
-        return product?.isAgeRestricted;
-      });
-
       saleMutation.mutate(
         {
           storeId,
@@ -604,7 +650,8 @@ export default function POSPage() {
           stripePaymentId: paymentIntentId,
           cardLast4,
           cardBrand,
-          ageVerified: hasAgeRestricted ? true : undefined,
+          ageVerified: ageVerified || undefined,
+          verificationMethod: verificationMethod || undefined,
         },
         {
           onSuccess: () => {
@@ -622,11 +669,6 @@ export default function POSPage() {
       setPaymentModal(false);
       setClientSecret(null);
 
-      const hasAgeRestricted = cart.some((item) => {
-        const product = products.find((p: Product) => p.id === item.productId);
-        return product?.isAgeRestricted;
-      });
-
       saleMutation.mutate(
         {
           storeId,
@@ -640,7 +682,8 @@ export default function POSPage() {
           })),
           paymentMethod,
           stripePaymentId: paymentIntentId,
-          ageVerified: hasAgeRestricted ? true : undefined,
+          ageVerified: ageVerified || undefined,
+          verificationMethod: verificationMethod || undefined,
         },
         {
           onSuccess: () => {
@@ -649,7 +692,7 @@ export default function POSPage() {
         }
       );
     },
-    [cart, products, saleMutation, storeId, userId, customerId, paymentMethod, completeOrder]
+    [cart, saleMutation, storeId, userId, customerId, paymentMethod, completeOrder, ageVerified, verificationMethod]
   );
 
   const handleCustomerLookup = useCallback(async () => {
@@ -825,6 +868,13 @@ export default function POSPage() {
                     {inCart && (
                       <span className="absolute -top-1 -right-1 w-[18px] h-[18px] rounded-full bg-brand text-surface-950 text-[9px] font-bold flex items-center justify-center shadow-md font-mono z-10">
                         {inCart.quantity}
+                      </span>
+                    )}
+
+                    {/* 21+ age restriction badge */}
+                    {product.isAgeRestricted && (
+                      <span className="absolute top-1.5 left-1.5 px-1 py-0.5 rounded bg-danger/20 text-danger text-[8px] font-bold tracking-wide z-10">
+                        21+
                       </span>
                     )}
 
@@ -1116,9 +1166,16 @@ export default function POSPage() {
               </p>
             )}
 
-            {/* Checkout button — opens modal */}
+            {/* Age denied warning */}
+            {ageDenied && (
+              <p className="text-[10px] text-danger font-body text-center">
+                Sale blocked — remove age-restricted items or re-verify ID
+              </p>
+            )}
+
+            {/* Checkout button — gates through age verification if needed */}
             <button
-              onClick={() => setCheckoutOpen(true)}
+              onClick={handleChargeClick}
               disabled={cart.length === 0 || saleMutation.isPending}
               className={cn(
                 "w-full h-[42px] rounded-xl font-display font-bold text-sm transition-all flex items-center justify-center gap-2 tracking-wide",
@@ -1127,7 +1184,8 @@ export default function POSPage() {
                   : "bg-brand text-surface-950 hover:brightness-110 active:scale-[0.97] active:brightness-90"
               )}
             >
-              💳 {saleMutation.isPending ? "Processing..." : `Charge ${formatCurrency(total)}`}
+              {hasAgeRestricted && !ageVerified ? "🪪" : "💳"}{" "}
+              {saleMutation.isPending ? "Processing..." : `Charge ${formatCurrency(total)}`}
             </button>
           </div>
         )}
@@ -1199,6 +1257,14 @@ export default function POSPage() {
         />
       )}
 
+      {/* ─── Age Verification Modal ─── */}
+      <AgeVerificationModal
+        open={ageVerifyOpen}
+        onVerified={handleAgeVerified}
+        onDenied={handleAgeDenied}
+        restrictedItems={restrictedItems}
+      />
+
       {/* ─── Barcode Scanner Modal ─── */}
       <ScannerModal
         open={scannerOpen}
@@ -1243,6 +1309,8 @@ export default function POSPage() {
           paymentMethod={lastOrder.paymentMethod}
           cashierName={(session?.user as any)?.name || "Cashier"}
           customerName={customerName || undefined}
+          ageVerified={lastOrder.ageVerified}
+          verificationMethod={lastOrder.verificationMethod}
           onSendSms={() => toast.success("Receipt sent via SMS")}
           onSendEmail={() => toast.success("Receipt sent via email")}
         />
