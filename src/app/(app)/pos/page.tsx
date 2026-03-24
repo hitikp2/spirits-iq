@@ -84,7 +84,7 @@ function PaymentForm({
       {error && (
         <p className="font-body text-xs text-danger text-center">{error}</p>
       )}
-      <div className="flex gap-2">
+      <div className="flex gap-2 sticky bottom-0 bg-surface-900 pt-2 pb-1">
         <button
           type="button"
           onClick={onCancel}
@@ -1055,8 +1055,8 @@ export default function POSPage() {
 
       {/* Stripe Payment Modal */}
       {paymentModal && clientSecret && stripePromise && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-md rounded-2xl border border-surface-600 bg-surface-900 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 px-0 sm:px-4 overflow-y-auto">
+          <div className="w-full max-w-md rounded-t-2xl sm:rounded-2xl border border-surface-600 bg-surface-900 shadow-2xl max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-surface-600 px-5 py-4">
               <div>
                 <h2 className="font-display text-lg font-bold text-surface-100">Payment</h2>
