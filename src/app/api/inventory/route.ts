@@ -97,6 +97,35 @@ export async function POST(request: NextRequest) {
         categoryId = defaultCat.id;
       }
 
+      // If an inactive product with the same SKU exists, reactivate it with updated data
+      const existing = await db.product.findUnique({
+        where: { storeId_sku: { storeId, sku } },
+      });
+
+      if (existing) {
+        if (existing.isActive) {
+          return NextResponse.json(
+            { success: false, error: `A product with SKU "${sku}" already exists` } satisfies ApiResponse,
+            { status: 409 }
+          );
+        }
+        // Reactivate archived product with new data
+        const reactivated = await db.product.update({
+          where: { id: existing.id },
+          data: {
+            isActive: true, name, brand, description, categoryId,
+            costPrice: costPrice || 0, retailPrice: retailPrice || 0,
+            quantity: quantity || 0, barcode,
+            reorderPoint: reorderPoint || 5, reorderQuantity: reorderQuantity || 12,
+            size, abv, vintage, region, imageUrl,
+            tags: tags || [], supplierId, isAgeRestricted: isAgeRestricted ?? true,
+            margin: retailPrice > 0 ? ((retailPrice - (costPrice || 0)) / retailPrice) * 100 : 0,
+          },
+          include: { category: true, supplier: true },
+        });
+        return NextResponse.json({ success: true, data: reactivated } satisfies ApiResponse, { status: 200 });
+      }
+
       const product = await db.product.create({
         data: {
           storeId, sku, barcode, name, brand, description, categoryId,
@@ -117,11 +146,15 @@ export async function POST(request: NextRequest) {
       { success: false, error: "Invalid action" } satisfies ApiResponse,
       { status: 400 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Inventory POST error:", error);
+    // Surface Prisma unique constraint errors
+    const msg = error?.code === "P2002"
+      ? `A product with that ${(error.meta?.target as string[])?.join(", ") || "value"} already exists`
+      : "Operation failed";
     return NextResponse.json(
-      { success: false, error: "Operation failed" } satisfies ApiResponse,
-      { status: 500 }
+      { success: false, error: msg } satisfies ApiResponse,
+      { status: error?.code === "P2002" ? 409 : 500 }
     );
   }
 }
