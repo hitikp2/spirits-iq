@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Spirits IQ – Discounts · PIN Switch · Multi-Register</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0a0c10;--surface:#12151c;--card:#161a24;--input:#1a1e28;--border:#1e2330;--text:#f0f0f2;--t2:#7a7f8e;--t3:#4a4f5e;--amber:#e5a526;--amber-g:rgba(229,165,38,.15);--amber-s:rgba(229,165,38,.08);--green:#34c759;--green-s:rgba(52,199,89,.1);--red:#ff453a;--red-s:rgba(255,69,58,.1);--blue:#5a9cf5;--blue-s:rgba(90,156,245,.08);--purple:#a78bfa;--purple-s:rgba(167,139,250,.08);--r:12px}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased}
+  .shell{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+  .tabs{display:flex;gap:4px;padding:12px 14px;background:var(--bg);position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border)}
+  .tab{flex:1;padding:10px 4px;text-align:center;font-size:10px;font-weight:600;color:var(--t3);background:var(--surface);border:1px solid var(--border);border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .2s}
+  .tab:active{transform:scale(.96)}
+  .tab.on{background:var(--amber-g);border-color:var(--amber);color:var(--amber)}
+  .tab-i{font-size:18px}
+  .panel{display:none;flex:1;padding:16px;animation:fadeIn .3s ease}
+  .panel.on{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .sec{font-size:10px;font-weight:700;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;margin:16px 0 10px}
+  .sec:first-child{margin-top:0}
+  .fcard{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px}
+  .fcard-t{font-size:14px;font-weight:700;margin-bottom:4px}
+  .fcard-d{font-size:12px;color:var(--t2);line-height:1.5}
+  .btn{width:100%;padding:14px;border-radius:var(--r);border:0;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s}
+  .btn:active{transform:scale(.97)}
+  .btn-amber{background:var(--amber);color:#000}
+  .btn-green{background:var(--green);color:#000}
+  .btn-surface{background:var(--card);color:var(--text);border:1px solid var(--border)}
+  .btn-red{background:var(--red-s);color:var(--red);border:1px solid rgba(255,69,58,.2)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-sm{padding:10px 14px;font-size:12px;width:auto}
+  .btn-row{display:flex;gap:8px}
+  .btn-row .btn{flex:1}
+  .mono{font-family:'DM Mono',monospace}
+  .toast{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-20px);padding:10px 18px;border-radius:var(--r);background:var(--green);color:#000;font-size:12px;font-weight:700;z-index:2000;opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:nowrap;box-shadow:0 8px 24px rgba(52,199,89,.3)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ═══ DISCOUNT CODES ═══ */
+.dc-input-row{display:flex;gap:8px;margin-bottom:12px}
+.dc-input{flex:1;padding:12px 14px;border-radius:var(–r);background:var(–input);border:1px solid var(–border);color:var(–text);font-size:14px;font-family:‘DM Mono’,monospace;letter-spacing:2px;text-transform:uppercase;outline:0;transition:border-color .2s}
+.dc-input:focus{border-color:var(–amber)}
+.dc-input::placeholder{color:var(–t3);letter-spacing:1px;text-transform:none}
+.dc-apply{padding:12px 20px;border-radius:var(–r);background:var(–amber);border:0;color:#000;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;transition:all .15s}
+.dc-apply:active{transform:scale(.95)}
+.dc-apply:disabled{opacity:.4}
+
+.dc-result{padding:14px;border-radius:var(–r);margin-bottom:12px;display:flex;align-items:center;gap:12px;animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.dc-result.valid{background:var(–green-s);border:1px solid rgba(52,199,89,.15)}
+.dc-result.invalid{background:var(–red-s);border:1px solid rgba(255,69,58,.15)}
+.dc-result.loyalty{background:var(–purple-s);border:1px solid rgba(167,139,250,.15)}
+.dcr-icon{font-size:24px}
+.dcr-info{flex:1}
+.dcr-title{font-size:13px;font-weight:700}
+.dcr-title.valid{color:var(–green)}
+.dcr-title.invalid{color:var(–red)}
+.dcr-title.loyalty{color:var(–purple)}
+.dcr-sub{font-size:10px;color:var(–t2);margin-top:2px}
+.dcr-remove{width:24px;height:24px;border-radius:50%;background:var(–card);border:1px solid var(–border);color:var(–t2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;flex-shrink:0}
+.dcr-remove:active{transform:scale(.85)}
+
+.dc-types{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.dc-type{padding:12px;border-radius:var(–r);background:var(–card);border:1px solid var(–border);text-align:center;cursor:pointer;transition:all .15s}
+.dc-type:active{transform:scale(.96)}
+.dc-type.active{border-color:var(–amber);background:var(–amber-g)}
+.dc-type-i{font-size:20px;margin-bottom:4px}
+.dc-type-l{font-size:10px;font-weight:600;color:var(–t2)}
+.dc-type-v{font-size:14px;font-weight:700;margin-top:2px}
+
+/* Cart preview */
+.dc-cart{background:var(–surface);border:1px solid var(–border);border-radius:16px;overflow:hidden;margin-bottom:12px}
+.dc-cart-head{padding:10px 14px;border-bottom:1px solid var(–border);display:flex;justify-content:space-between;font-size:11px;font-weight:600;color:var(–t3)}
+.dc-cart-item{display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.02);font-size:12px}
+.dc-cart-item .name{font-weight:600}
+.dc-cart-item .price{font-weight:700;color:var(–amber)}
+.dc-cart-foot{padding:8px 14px}
+.dc-row{display:flex;justify-content:space-between;padding:2px 0;font-size:11px;color:var(–t2)}
+.dc-row.discount{color:var(–green);font-weight:600}
+.dc-row.total{font-size:16px;font-weight:700;color:var(–text);padding:6px 0}
+.dc-row.total .val{color:var(–amber)}
+.dc-row .strikethrough{text-decoration:line-through;color:var(–t3);margin-right:6px}
+
+/* ═══ PIN SWITCH ═══ */
+.pin-current{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(–surface);border:1px solid var(–border);border-radius:16px;margin-bottom:12px}
+.pin-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0}
+.pin-info{flex:1}
+.pin-name{font-size:14px;font-weight:700}
+.pin-role{font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;display:inline-block;margin-top:2px}
+.pin-time{font-size:10px;color:var(–t3);text-align:right}
+.pin-time-val{font-size:12px;font-weight:600;color:var(–text)}
+
+.pin-switch-btn{width:100%;padding:14px;border-radius:var(–r);background:var(–blue-s);border:1px solid rgba(90,156,245,.15);color:var(–blue);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px;transition:all .15s}
+.pin-switch-btn:active{transform:scale(.97)}
+
+/* PIN pad */
+.pin-pad-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);align-items:center;justify-content:center}
+.pin-pad-overlay.show{display:flex}
+.pin-pad{background:var(–surface);border:1px solid var(–border);border-radius:20px;padding:24px;width:300px;text-align:center}
+.pin-pad-title{font-size:16px;font-weight:700;margin-bottom:4px}
+.pin-pad-sub{font-size:11px;color:var(–t2);margin-bottom:16px}
+.pin-dots{display:flex;justify-content:center;gap:12px;margin-bottom:20px}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(–border);transition:all .15s}
+.pin-dot.filled{border-color:var(–amber);background:var(–amber)}
+.pin-dot.error{border-color:var(–red);background:var(–red);animation:shake .3s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:220px;margin:0 auto}
+.pin-key{height:52px;border-radius:var(–r);background:var(–card);border:1px solid var(–border);color:var(–text);font-size:22px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .1s;font-family:‘DM Sans’,sans-serif}
+.pin-key:active{background:var(–amber);color:#000;transform:scale(.94)}
+.pin-key.back{font-size:16px;color:var(–t2)}
+.pin-key.empty{visibility:hidden}
+.pin-cancel{margin-top:12px;font-size:12px;color:var(–t3);cursor:pointer;padding:8px}
+.pin-cancel:active{color:var(–text)}
+
+/* Quick switch badges */
+.pin-quick{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+.pin-quick::-webkit-scrollbar{display:none}
+.pin-q{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-width:64px;padding:10px 8px;border-radius:var(–r);background:var(–card);border:1px solid var(–border);transition:all .15s}
+.pin-q:active{transform:scale(.95);border-color:var(–amber)}
+.pin-q-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.pin-q-name{font-size:9px;font-weight:600;color:var(–t2);white-space:nowrap}
+.pin-q-status{width:6px;height:6px;border-radius:50%}
+
+/* ═══ MULTI-REGISTER ═══ */
+.reg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.reg-card{padding:14px;border-radius:16px;background:var(–surface);border:1px solid var(–border);cursor:pointer;transition:all .15s;position:relative}
+.reg-card:active{transform:scale(.97)}
+.reg-card.active{border-color:var(–green);box-shadow:0 0 0 1px var(–green),0 0 12px var(–green-s)}
+.reg-card.idle{border-color:var(–border);opacity:.7}
+.reg-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.reg-name{font-size:13px;font-weight:700}
+.reg-status{font-size:8px;font-weight:700;padding:3px 6px;border-radius:4px;letter-spacing:.5px}
+.reg-status.on{background:var(–green-s);color:var(–green)}
+.reg-status.off{background:var(–card);color:var(–t3)}
+.reg-cashier{font-size:10px;color:var(–t2);margin-bottom:6px}
+.reg-stats{display:flex;gap:8px}
+.reg-stat{font-size:9px;color:var(–t3)}
+.reg-stat span{color:var(–text);font-weight:600}
+
+.sync-indicator{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:var(–r);background:var(–surface);border:1px solid var(–border);margin-bottom:12px;font-size:11px;color:var(–t2)}
+.sync-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.sync-dot.live{background:var(–green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+.event-feed{background:var(–surface);border:1px solid var(–border);border-radius:16px;overflow:hidden;margin-bottom:12px}
+.ef-head{padding:10px 14px;border-bottom:1px solid var(–border);font-size:12px;font-weight:700}
+.ef-item{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(–border);font-size:11px}
+.ef-item:last-child{border-bottom:0}
+.ef-icon{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.ef-info{flex:1;min-width:0}
+.ef-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ef-meta{font-size:9px;color:var(–t3)}
+.ef-time{font-size:9px;color:var(–t3);flex-shrink:0}
+</style>
+
+</head>
+<body>
+<div class="shell">
+  <div class="toast" id="toast"></div>
+
+  <div class="tabs">
+    <div class="tab on" onclick="switchTab('discount',this)"><span class="tab-i">🏷️</span>Discount Codes</div>
+    <div class="tab" onclick="switchTab('pin',this)"><span class="tab-i">🔐</span>PIN Switch</div>
+    <div class="tab" onclick="switchTab('register',this)"><span class="tab-i">🖥️</span>Multi-Register</div>
+  </div>
+
+  <!-- ═══ 1. DISCOUNT CODES ═══ -->
+
+  <div class="panel on" id="panel-discount">
+    <div class="sec">Apply Code at Checkout</div>
+    <div class="dc-input-row">
+      <input class="dc-input" id="dcInput" type="text" placeholder="Enter code..." maxlength="20" onkeydown="if(event.key==='Enter')applyCode()">
+      <button class="dc-apply" id="dcApply" onclick="applyCode()">Apply</button>
+    </div>
+    <div id="dcResult"></div>
+
+```
+<div class="sec">Discount Types</div>
+<div class="dc-types">
+  <div class="dc-type active" onclick="demoCode('SUMMER15')"><div class="dc-type-i">💲</div><div class="dc-type-l">Percentage</div><div class="dc-type-v">15% off</div></div>
+  <div class="dc-type" onclick="demoCode('SAVE20')"><div class="dc-type-i">🏷️</div><div class="dc-type-l">Fixed Amount</div><div class="dc-type-v">$20 off</div></div>
+  <div class="dc-type" onclick="demoCode('SIQ-VK4NX82R')"><div class="dc-type-i">⭐</div><div class="dc-type-l">Loyalty Reward</div><div class="dc-type-v">500 pts</div></div>
+  <div class="dc-type" onclick="demoCode('BOGO-TONIC')"><div class="dc-type-i">🎁</div><div class="dc-type-l">BOGO / Free Item</div><div class="dc-type-v">Buy 1 Get 1</div></div>
+</div>
+
+<div class="sec">Cart Preview with Discount</div>
+<div class="dc-cart">
+  <div class="dc-cart-head"><span>Item</span><span>Price</span></div>
+  <div class="dc-cart-item"><span class="name">Don Julio 1942 <span style="color:var(--t3);font-weight:400">×1</span></span><span class="price">$164.99</span></div>
+  <div class="dc-cart-item"><span class="name">EH Taylor Small Batch <span style="color:var(--t3);font-weight:400">×1</span></span><span class="price">$41.99</span></div>
+  <div class="dc-cart-item"><span class="name">Fever-Tree Tonic <span style="color:var(--t3);font-weight:400">×2</span></span><span class="price">$11.98</span></div>
+  <div class="dc-cart-foot" id="dcCartFoot">
+    <div class="dc-row"><span>Subtotal</span><span>$218.96</span></div>
+    <div class="dc-row"><span>Tax (9.75%)</span><span>$21.35</span></div>
+    <div class="dc-row total"><span>Total</span><span class="val">$240.31</span></div>
+  </div>
+</div>
+```
+
+  </div>
+
+  <!-- ═══ 2. PIN SWITCH ═══ -->
+
+  <div class="panel" id="panel-pin">
+    <div class="sec">Current Cashier</div>
+    <div class="pin-current" id="pinCurrent">
+      <div class="pin-avatar" style="background:var(--green-s);color:var(--green)">ST</div>
+      <div class="pin-info">
+        <div class="pin-name">Sam Torres</div>
+        <div class="pin-role" style="background:var(--blue-s);color:var(--blue)">CASHIER</div>
+      </div>
+      <div class="pin-time">
+        <div style="font-size:9px;color:var(--t3)">Shift</div>
+        <div class="pin-time-val" id="shiftTime">2h 14m</div>
+      </div>
+    </div>
+
+```
+<button class="pin-switch-btn" onclick="openPinPad()">🔄 Switch Cashier</button>
+
+<div class="sec">Quick Switch (Clocked-In Staff)</div>
+<div class="pin-quick">
+  <div class="pin-q" onclick="quickSwitch('Alex R.','OWNER','AR','var(--amber)')">
+    <div class="pin-q-avatar" style="background:var(--amber-g);color:var(--amber)">AR</div>
+    <div class="pin-q-name">Alex R.</div>
+    <div class="pin-q-status" style="background:var(--green)"></div>
+  </div>
+  <div class="pin-q" onclick="quickSwitch('Jordan C.','MANAGER','JC','var(--purple)')">
+    <div class="pin-q-avatar" style="background:var(--purple-s);color:var(--purple)">JC</div>
+    <div class="pin-q-name">Jordan C.</div>
+    <div class="pin-q-status" style="background:var(--green)"></div>
+  </div>
+  <div class="pin-q" style="opacity:.4;cursor:not-allowed">
+    <div class="pin-q-avatar" style="background:var(--card);color:var(--t3)">ML</div>
+    <div class="pin-q-name">Maria L.</div>
+    <div class="pin-q-status" style="background:var(--t3)"></div>
+  </div>
+</div>
+
+<div class="sec">How It Works</div>
+<div class="fcard">
+  <div class="fcard-d">
+    PIN switching lets cashiers hand off the register without logging out. The new cashier enters their 4-digit PIN — no email or password needed. The system auto-clocks out the previous cashier and clocks in the new one. All subsequent transactions are attributed to the new cashier until another switch happens.<br><br>
+    <strong style="color:var(--amber)">Security:</strong> The cart is preserved during switches but can optionally be cleared. Manager override (PIN from MANAGER or OWNER role) is required for voids, refunds, and discount overrides.
+  </div>
+</div>
+
+<div class="sec">Audit Trail</div>
+<div class="fcard">
+  <div class="fcard-d mono" style="font-size:10px;line-height:2;color:var(--t2)">
+    14:32:00 — Sam Torres clocked in (PIN: 0000)<br>
+    14:32:01 — Register 1 assigned to Sam Torres<br>
+    16:45:12 — <span style="color:var(--amber)">PIN switch initiated</span><br>
+    16:45:15 — Sam Torres auto-clocked out (2h 13m)<br>
+    16:45:15 — Jordan Chen clocked in (PIN: 5678)<br>
+    16:45:16 — Register 1 reassigned to Jordan Chen<br>
+    16:45:16 — Cart preserved (3 items, $218.96)
+  </div>
+</div>
+```
+
+  </div>
+
+  <!-- ═══ 3. MULTI-REGISTER ═══ -->
+
+  <div class="panel" id="panel-register">
+    <div class="sec">Live Sync Status</div>
+    <div class="sync-indicator">
+      <div class="sync-dot live"></div>
+      <span>Real-time sync via Redis pub/sub — all registers update within <strong style="color:var(--text)">~200ms</strong></span>
+    </div>
+
+```
+<div class="sec">Active Registers</div>
+<div class="reg-grid">
+  <div class="reg-card active">
+    <div class="reg-top"><span class="reg-name">Register 1</span><span class="reg-status on">ACTIVE</span></div>
+    <div class="reg-cashier">👤 Sam Torres</div>
+    <div class="reg-stats"><span class="reg-stat">Sales: <span>$2,847</span></span><span class="reg-stat">Txns: <span>34</span></span></div>
+  </div>
+  <div class="reg-card active">
+    <div class="reg-top"><span class="reg-name">Register 2</span><span class="reg-status on">ACTIVE</span></div>
+    <div class="reg-cashier">👤 Jordan Chen</div>
+    <div class="reg-stats"><span class="reg-stat">Sales: <span>$1,523</span></span><span class="reg-stat">Txns: <span>19</span></span></div>
+  </div>
+  <div class="reg-card idle">
+    <div class="reg-top"><span class="reg-name">iPad Floor</span><span class="reg-status off">IDLE</span></div>
+    <div class="reg-cashier">No cashier assigned</div>
+    <div class="reg-stats"><span class="reg-stat">Sales: <span>$0</span></span><span class="reg-stat">Txns: <span>0</span></span></div>
+  </div>
+  <div class="reg-card idle">
+    <div class="reg-top"><span class="reg-name">Mobile POS</span><span class="reg-status off">IDLE</span></div>
+    <div class="reg-cashier">No cashier assigned</div>
+    <div class="reg-stats"><span class="reg-stat">Sales: <span>$0</span></span><span class="reg-stat">Txns: <span>0</span></span></div>
+  </div>
+</div>
+
+<div class="sec">Live Event Feed</div>
+<div class="event-feed" id="eventFeed">
+  <div class="ef-head">Cross-Register Activity</div>
+  <div class="ef-item"><div class="ef-icon" style="background:var(--green-s)">💳</div><div class="ef-info"><div class="ef-title">Sale #0052 — $164.99</div><div class="ef-meta">Register 1 · Sam Torres · Don Julio 1942</div></div><div class="ef-time">Just now</div></div>
+  <div class="ef-item"><div class="ef-icon" style="background:var(--amber-g)">📦</div><div class="ef-info"><div class="ef-title">Stock updated: Buffalo Trace → 23 units</div><div class="ef-meta">Register 2 · Jordan Chen</div></div><div class="ef-time">1m ago</div></div>
+  <div class="ef-item"><div class="ef-icon" style="background:var(--blue-s)">👤</div><div class="ef-info"><div class="ef-title">Customer linked: James W. (VIP)</div><div class="ef-meta">Register 1 · Loyalty lookup</div></div><div class="ef-time">3m ago</div></div>
+  <div class="ef-item"><div class="ef-icon" style="background:var(--purple-s)">🔄</div><div class="ef-info"><div class="ef-title">PIN switch: Sam → Jordan on Register 2</div><div class="ef-meta">Auto clock-out + clock-in</div></div><div class="ef-time">12m ago</div></div>
+</div>
+
+<div class="sec">What Syncs in Real-Time</div>
+<div class="fcard">
+  <div class="fcard-d">
+    <strong style="color:var(--green)">Instant sync:</strong> Inventory counts (when a sale depletes stock, ALL registers see the updated count), customer loyalty points, product price changes, active promotions/discounts<br><br>
+    <strong style="color:var(--amber)">Per-register:</strong> Each register has its own cart (stored in Redis keyed by registerId). Carts are NOT shared between registers — each POS device operates independently.<br><br>
+    <strong style="color:var(--blue)">Conflict resolution:</strong> If two registers sell the last unit of a product simultaneously, the first transaction to complete wins. The second gets an "Out of stock" error and the item is removed from their cart with a notification.
+  </div>
+</div>
+
+<button class="btn btn-amber" onclick="simulateEvent()">⚡ Simulate Cross-Register Event</button>
+```
+
+  </div>
+</div>
+
+<!-- PIN PAD OVERLAY -->
+
+<div class="pin-pad-overlay" id="pinPadOverlay">
+  <div class="pin-pad">
+    <div class="pin-pad-title">Switch Cashier</div>
+    <div class="pin-pad-sub">Enter 4-digit PIN</div>
+    <div class="pin-dots" id="pinDots">
+      <div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div>
+    </div>
+    <div class="pin-grid">
+      <div class="pin-key" onclick="pinInput('1')">1</div>
+      <div class="pin-key" onclick="pinInput('2')">2</div>
+      <div class="pin-key" onclick="pinInput('3')">3</div>
+      <div class="pin-key" onclick="pinInput('4')">4</div>
+      <div class="pin-key" onclick="pinInput('5')">5</div>
+      <div class="pin-key" onclick="pinInput('6')">6</div>
+      <div class="pin-key" onclick="pinInput('7')">7</div>
+      <div class="pin-key" onclick="pinInput('8')">8</div>
+      <div class="pin-key" onclick="pinInput('9')">9</div>
+      <div class="pin-key empty"></div>
+      <div class="pin-key" onclick="pinInput('0')">0</div>
+      <div class="pin-key back" onclick="pinBack()">⌫</div>
+    </div>
+    <div class="pin-cancel" onclick="closePinPad()">Cancel</div>
+  </div>
+</div>
+
+<script>
+function switchTab(n,el){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));el.classList.add('on');document.getElementById('panel-'+n).classList.add('on')}
+function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
+
+// ═══ DISCOUNT CODES ═══
+const CODES={
+  'SUMMER15':{type:'percent',value:15,label:'Summer Sale — 15% off',icon:'🌞'},
+  'SAVE20':{type:'fixed',value:20,label:'$20 off your order',icon:'🏷️'},
+  'SIQ-VK4NX82R':{type:'loyalty',value:25,label:'Loyalty Reward — $25 off (500 pts)',icon:'⭐'},
+  'BOGO-TONIC':{type:'bogo',value:5.99,label:'BOGO Fever-Tree Tonic — 1 free',icon:'🎁'},
+  'WELCOME10':{type:'percent',value:10,label:'New Customer — 10% off',icon:'👋'},
+};
+let activeDiscount=null;
+const SUBTOTAL=218.96;
+const TAX_RATE=0.0975;
+
+function demoCode(code){document.getElementById('dcInput').value=code;applyCode()}
+
+function applyCode(){
+  const input=document.getElementById('dcInput');
+  const code=input.value.trim().toUpperCase();
+  const el=document.getElementById('dcResult');
+  if(!code){el.innerHTML='';return}
+  const disc=CODES[code];
+  if(!disc){
+    el.innerHTML=`<div class="dc-result invalid"><span class="dcr-icon">❌</span><div class="dcr-info"><div class="dcr-title invalid">Invalid Code</div><div class="dcr-sub">"${code}" not found or expired</div></div></div>`;
+    activeDiscount=null;updateCartPreview();return;
+  }
+  const cls=disc.type==='loyalty'?'loyalty':'valid';
+  el.innerHTML=`<div class="dc-result ${cls}"><span class="dcr-icon">${disc.icon}</span><div class="dcr-info"><div class="dcr-title ${cls}">${disc.label}</div><div class="dcr-sub">Code: ${code}</div></div><div class="dcr-remove" onclick="removeDiscount()">✕</div></div>`;
+  activeDiscount=disc;
+  updateCartPreview();
+}
+
+function removeDiscount(){
+  document.getElementById('dcResult').innerHTML='';
+  document.getElementById('dcInput').value='';
+  activeDiscount=null;
+  updateCartPreview();
+}
+
+function updateCartPreview(){
+  const foot=document.getElementById('dcCartFoot');
+  let discount=0;
+  if(activeDiscount){
+    if(activeDiscount.type==='percent')discount=SUBTOTAL*(activeDiscount.value/100);
+    else if(activeDiscount.type==='fixed')discount=activeDiscount.value;
+    else if(activeDiscount.type==='loyalty')discount=activeDiscount.value;
+    else if(activeDiscount.type==='bogo')discount=activeDiscount.value;
+    discount=Math.min(discount,SUBTOTAL);
+  }
+  const afterDiscount=SUBTOTAL-discount;
+  const tax=afterDiscount*TAX_RATE;
+  const total=afterDiscount+tax;
+  foot.innerHTML=`
+    <div class="dc-row"><span>Subtotal</span><span>$${SUBTOTAL.toFixed(2)}</span></div>
+    ${discount>0?`<div class="dc-row discount"><span>Discount</span><span>−$${discount.toFixed(2)}</span></div>`:''}
+    <div class="dc-row"><span>Tax (9.75%)</span><span>$${tax.toFixed(2)}</span></div>
+    <div class="dc-row total"><span>Total</span><span class="val">${discount>0?`<span class="strikethrough">$${(SUBTOTAL*(1+TAX_RATE)).toFixed(2)}</span>`:''} $${total.toFixed(2)}</span></div>`;
+}
+
+// ═══ PIN SWITCH ═══
+let pinValue='';
+const EMPLOYEES={
+  '0000':{name:'Sam Torres',initials:'ST',role:'CASHIER',color:'var(--green)',colorBg:'var(--green-s)'},
+  '1234':{name:'Alex Rivera',initials:'AR',role:'OWNER',color:'var(--amber)',colorBg:'var(--amber-g)'},
+  '5678':{name:'Jordan Chen',initials:'JC',role:'MANAGER',color:'var(--purple)',colorBg:'var(--purple-s)'},
+};
+
+function openPinPad(){
+  pinValue='';
+  updatePinDots();
+  document.getElementById('pinPadOverlay').classList.add('show');
+}
+
+function closePinPad(){document.getElementById('pinPadOverlay').classList.remove('show')}
+
+function pinInput(d){
+  if(pinValue.length>=4)return;
+  pinValue+=d;
+  updatePinDots();
+  if(pinValue.length===4)setTimeout(()=>validatePin(),200);
+}
+
+function pinBack(){pinValue=pinValue.slice(0,-1);updatePinDots()}
+
+function updatePinDots(){
+  const dots=document.querySelectorAll('#pinDots .pin-dot');
+  dots.forEach((d,i)=>{d.className='pin-dot'+(i<pinValue.length?' filled':'')});
+}
+
+function validatePin(){
+  const emp=EMPLOYEES[pinValue];
+  if(emp){
+    switchCashier(emp);
+    closePinPad();
+  }else{
+    const dots=document.querySelectorAll('#pinDots .pin-dot');
+    dots.forEach(d=>d.className='pin-dot error');
+    setTimeout(()=>{pinValue='';updatePinDots()},500);
+    showToast('Invalid PIN — try again');
+  }
+}
+
+function quickSwitch(name,role,initials,color){openPinPad()}
+
+function switchCashier(emp){
+  const el=document.getElementById('pinCurrent');
+  el.innerHTML=`
+    <div class="pin-avatar" style="background:${emp.colorBg};color:${emp.color}">${emp.initials}</div>
+    <div class="pin-info"><div class="pin-name">${emp.name}</div><div class="pin-role" style="background:${emp.colorBg};color:${emp.color}">${emp.role}</div></div>
+    <div class="pin-time"><div style="font-size:9px;color:var(--t3)">Shift</div><div class="pin-time-val">0h 0m</div></div>`;
+  showToast(`Switched to ${emp.name}`);
+}
+
+// ═══ MULTI-REGISTER ═══
+const EVENTS=[
+  {icon:'💳',bg:'var(--green-s)',title:'Sale #0053 — $44.99',meta:'Register 2 · Jordan Chen · Casamigos Blanco'},
+  {icon:'📦',bg:'var(--amber-g)',title:'Low stock alert: Clase Azul → 1 unit',meta:'Auto-triggered by Register 1 sale'},
+  {icon:'🔔',bg:'var(--red-s)',title:'Age verification required on Register 2',meta:'Don Julio 1942 added to cart'},
+  {icon:'💰',bg:'var(--green-s)',title:'Sale #0054 — $29.99',meta:'iPad Floor · Alex Rivera · Grey Goose'},
+  {icon:'⭐',bg:'var(--purple-s)',title:'VIP customer checked in: James W.',meta:'Register 1 · Phone lookup'},
+];
+let eventIdx=0;
+
+function simulateEvent(){
+  const e=EVENTS[eventIdx%EVENTS.length];
+  eventIdx++;
+  const feed=document.getElementById('eventFeed');
+  const items=feed.querySelectorAll('.ef-item');
+  const div=document.createElement('div');
+  div.className='ef-item';
+  div.style.animation='slideIn .3s ease';
+  div.innerHTML=`<div class="ef-icon" style="background:${e.bg}">${e.icon}</div><div class="ef-info"><div class="ef-title">${e.title}</div><div class="ef-meta">${e.meta}</div></div><div class="ef-time">Just now</div>`;
+  feed.insertBefore(div,items[0]);
+  if(feed.querySelectorAll('.ef-item').length>6)feed.querySelectorAll('.ef-item')[6].remove();
+  showToast('Event synced across all registers');
+}
+</script>
+
+</body>
+</html>
