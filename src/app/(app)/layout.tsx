@@ -196,11 +196,11 @@ export default function DashboardLayout({
         {/* Content */}
         <main className={cn(
           "flex-1 overflow-y-auto overscroll-contain",
-          pathname === "/pos" ? "px-0 py-0" : "px-4 py-4"
-        )} style={{ WebkitOverflowScrolling: "touch" }}>{children}</main>
+          pathname === "/pos" ? "px-0 py-0 z-50" : "px-4 py-4"
+        )} style={{ WebkitOverflowScrolling: "touch" as any }}>{children}</main>
 
         {/* Bottom Tab Bar */}
-        <nav className="flex-shrink-0 z-40 glass border-t border-surface-600">
+        <nav className="flex-shrink-0 z-30 glass border-t border-surface-600">
           <div className="flex justify-around items-center py-2 pb-5">
             {NAV_ITEMS.slice(0, 6).map((item) => {
               const Icon = item.icon;
