@@ -783,9 +783,9 @@ export default function POSPage() {
   const cartItemCount = cart.reduce((s, i) => s + i.quantity, 0);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-5rem)]">
+    <div className="flex flex-col h-full">
       {/* ─── Product Grid Area ─── */}
-      <div className="flex-1 flex flex-col min-h-0 px-4 pt-4 pb-32">
+      <div className="flex-1 flex flex-col min-h-0 px-4 pt-4 pb-2">
         {/* Search bar + Scanner */}
         <div className="flex gap-1.5 mb-3">
           <div className="relative flex-1">
@@ -939,9 +939,10 @@ export default function POSPage() {
         <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={() => setCartExpanded(false)} />
       )}
       <div className={cn(
-        "fixed bottom-0 inset-x-0 z-50 bg-surface-900 border-t border-surface-700 transition-all rounded-t-[20px]",
-        cartExpanded ? "max-h-[85vh]" : "max-h-fit",
-        cart.length === 0 && "translate-y-full"
+        "flex-shrink-0 z-50 bg-surface-900 border-t border-surface-700 transition-all rounded-t-[20px]",
+        cartExpanded && "fixed bottom-0 inset-x-0 max-h-[85vh]",
+        !cartExpanded && "relative",
+        cart.length === 0 && "hidden"
       )}>
         {/* Cart header — always visible */}
         <button
