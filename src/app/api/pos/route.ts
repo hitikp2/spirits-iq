@@ -1,33 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { completeTransaction } from "@/lib/payments";
 import { getUpsellSuggestions } from "@/lib/ai";
+import { getCredentials } from "@/lib/integrations";
 import { db } from "@/lib/db";
-import crypto from "crypto";
 import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
 
 // ─── Resolve Stripe secret key: store integration → env var ───
 async function getStripeKey(storeId: string): Promise<string | null> {
-  // Try store-level credentials first (from Settings > Integrations)
-  try {
-    const integration = await db.storeIntegration.findUnique({
-      where: { storeId_provider: { storeId, provider: "stripe" } },
-    });
-    if (integration?.credentials && integration.isActive) {
-      const secret = process.env.NEXTAUTH_SECRET || "";
-      const key = crypto.scryptSync(secret, "spirits-iq-salt", 32);
-      const [ivHex, tagHex, encrypted] = integration.credentials.split(":");
-      const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
-      decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-      let decrypted = decipher.update(encrypted, "hex", "utf8");
-      decrypted += decipher.final("utf8");
-      const creds = JSON.parse(decrypted);
-      if (creds.secretKey) return creds.secretKey;
-    }
-  } catch {}
-  // Fall back to env var
-  return process.env.STRIPE_SECRET_KEY || null;
+  const creds = await getCredentials(storeId, "stripe");
+  return creds?.secretKey || null;
 }
 
 // POST /api/pos — Process a sale or create payment intent

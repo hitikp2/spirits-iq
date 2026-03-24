@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useInventory, useProcessSale, useUpsellSuggestion } from "@/hooks/useApi";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -105,6 +105,228 @@ function PaymentForm({
   );
 }
 
+// ─── NFC Tap to Pay Modal ────────────────────────────────
+function NfcTapModal({
+  total,
+  storeId,
+  cashierId,
+  onSuccess,
+  onCancel,
+}: {
+  total: number;
+  storeId: string;
+  cashierId: string;
+  onSuccess: (paymentIntentId: string, cardLast4?: string, cardBrand?: string) => void;
+  onCancel: () => void;
+}) {
+  const [status, setStatus] = useState<"initializing" | "ready" | "waiting" | "processing" | "done" | "error">("initializing");
+  const [error, setError] = useState("");
+  const terminalRef = useRef<any>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init() {
+      try {
+        const { loadStripeTerminal } = await import("@stripe/terminal-js");
+        const StripeTerminal = await loadStripeTerminal();
+        if (!StripeTerminal) throw new Error("Failed to load Stripe Terminal SDK");
+
+        const terminal = StripeTerminal.create({
+          onFetchConnectionToken: async () => {
+            const res = await fetch("/api/terminal", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "connection-token" }),
+            });
+            const json = await res.json();
+            if (!json.success) throw new Error(json.error);
+            return json.data.secret;
+          },
+          onUnexpectedReaderDisconnect: () => {
+            if (!cancelled) {
+              setError("Reader disconnected unexpectedly");
+              setStatus("error");
+            }
+          },
+        });
+
+        if (cancelled) return;
+        terminalRef.current = terminal;
+
+        // Discover and connect to the tap-to-pay reader (built into the device)
+        setStatus("ready");
+        const discoverResult = await terminal.discoverReaders({
+          simulated: false,
+        });
+
+        if (cancelled) return;
+
+        if ("error" in discoverResult) {
+          // Try simulated mode as fallback (dev/testing)
+          const simResult = await terminal.discoverReaders({ simulated: true });
+          if ("error" in simResult || simResult.discoveredReaders.length === 0) {
+            setError("No NFC reader found. Ensure NFC is enabled on this device.");
+            setStatus("error");
+            return;
+          }
+          await terminal.connectReader(simResult.discoveredReaders[0]);
+        } else if (discoverResult.discoveredReaders.length === 0) {
+          setError("No NFC reader found. This device may not support Tap to Pay.");
+          setStatus("error");
+          return;
+        } else {
+          const connectResult = await terminal.connectReader(discoverResult.discoveredReaders[0]);
+          if ("error" in connectResult) {
+            setError("Could not connect to NFC reader");
+            setStatus("error");
+            return;
+          }
+        }
+
+        if (cancelled) return;
+
+        // Create a card-present PaymentIntent on the server
+        const piRes = await fetch("/api/terminal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "create-intent",
+            amount: Math.round(total * 100),
+            cashierId,
+          }),
+        });
+        const piJson = await piRes.json();
+        if (!piJson.success) {
+          setError(piJson.error || "Failed to create payment");
+          setStatus("error");
+          return;
+        }
+
+        if (cancelled) return;
+        setStatus("waiting");
+
+        // Collect payment method (NFC tap)
+        const collectResult = await terminal.collectPaymentMethod(piJson.data.clientSecret);
+        if ("error" in collectResult) {
+          if (!cancelled) {
+            setError(collectResult.error.message || "Card tap cancelled");
+            setStatus("error");
+          }
+          return;
+        }
+
+        if (cancelled) return;
+        setStatus("processing");
+
+        // Confirm the payment
+        const confirmResult = await terminal.processPayment(collectResult.paymentIntent);
+        if ("error" in confirmResult) {
+          setError(confirmResult.error.message || "Payment failed");
+          setStatus("error");
+          return;
+        }
+
+        if (cancelled) return;
+
+        // Get card details from server
+        const captureRes = await fetch("/api/terminal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "capture",
+            paymentIntentId: confirmResult.paymentIntent.id,
+          }),
+        });
+        const captureJson = await captureRes.json();
+
+        setStatus("done");
+        onSuccess(
+          confirmResult.paymentIntent.id,
+          captureJson.data?.cardLast4,
+          captureJson.data?.cardBrand
+        );
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message || "NFC initialization failed");
+          setStatus("error");
+        }
+      }
+    }
+
+    init();
+
+    return () => {
+      cancelled = true;
+      if (terminalRef.current) {
+        try { terminalRef.current.disconnectReader(); } catch {}
+      }
+    };
+  }, [total, cashierId, onSuccess, storeId]);
+
+  function handleCancel() {
+    if (terminalRef.current) {
+      try { terminalRef.current.cancelCollectPaymentMethod(); } catch {}
+      try { terminalRef.current.disconnectReader(); } catch {}
+    }
+    onCancel();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-surface-600 bg-surface-900 shadow-2xl p-6 text-center">
+        <div className="mb-4">
+          <h2 className="font-display text-lg font-bold text-surface-100">Tap to Pay</h2>
+          <p className="font-mono text-sm text-brand">{formatCurrency(total)}</p>
+        </div>
+
+        {/* NFC Icon */}
+        <div className="my-8 flex justify-center">
+          <div className={cn(
+            "w-24 h-24 rounded-full flex items-center justify-center transition-all",
+            status === "waiting" ? "bg-brand/20 animate-pulse" : "bg-surface-800",
+            status === "done" ? "bg-success/20" : "",
+            status === "error" ? "bg-danger/20" : ""
+          )}>
+            {status === "done" ? (
+              <svg className="w-12 h-12 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : status === "error" ? (
+              <svg className="w-12 h-12 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="w-12 h-12 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
+                <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+              </svg>
+            )}
+          </div>
+        </div>
+
+        <p className="font-body text-sm text-surface-300 mb-2">
+          {status === "initializing" && "Connecting to NFC reader..."}
+          {status === "ready" && "Discovering reader..."}
+          {status === "waiting" && "Hold card near the back of this device"}
+          {status === "processing" && "Processing payment..."}
+          {status === "done" && "Payment successful!"}
+          {status === "error" && error}
+        </p>
+
+        {status !== "done" && (
+          <button
+            onClick={handleCancel}
+            className="mt-4 w-full py-3 rounded-xl font-display font-bold text-sm bg-surface-800 text-surface-300 hover:bg-surface-700 transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function POSPage() {
   const { data: session } = useSession();
   const storeId = (session?.user as any)?.storeId ?? "";
@@ -125,8 +347,11 @@ export default function POSPage() {
   const [paymentModal, setPaymentModal] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<"CARD" | "APPLE_PAY" | "GOOGLE_PAY">("CARD");
+  const [paymentMethod, setPaymentMethod] = useState<"CARD" | "APPLE_PAY" | "GOOGLE_PAY" | "NFC">("CARD");
   const [paymentError, setPaymentError] = useState("");
+
+  // NFC Tap to Pay state
+  const [nfcModal, setNfcModal] = useState(false);
 
   const { data: products = [], isLoading } = useInventory(storeId) as {
     data: Product[];
@@ -287,6 +512,54 @@ export default function POSPage() {
       }
     },
     [cart, total, storeId]
+  );
+
+  // NFC Tap to Pay — open NFC modal
+  const handleNfcCharge = useCallback(() => {
+    if (cart.length === 0) return;
+    setPaymentMethod("NFC");
+    setPaymentError("");
+    setNfcModal(true);
+  }, [cart]);
+
+  // Called after NFC payment succeeds
+  const handleNfcSuccess = useCallback(
+    (paymentIntentId: string, cardLast4?: string, cardBrand?: string) => {
+      setNfcModal(false);
+
+      const hasAgeRestricted = cart.some((item) => {
+        const product = products.find((p: Product) => p.id === item.productId);
+        return product?.isAgeRestricted;
+      });
+
+      saleMutation.mutate(
+        {
+          storeId,
+          cashierId: userId,
+          customerId,
+          items: cart.map((i) => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            unitPrice: i.price,
+            discount: 0,
+          })),
+          paymentMethod: "CARD",
+          stripePaymentId: paymentIntentId,
+          cardLast4,
+          cardBrand,
+          ageVerified: hasAgeRestricted ? true : undefined,
+        },
+        {
+          onSuccess: () => {
+            setCart([]);
+            setCustomerId(undefined);
+            setCustomerName("");
+            setSaleSuccess(true);
+          },
+        }
+      );
+    },
+    [cart, products, saleMutation, storeId, userId, customerId]
   );
 
   // Called after Stripe payment succeeds
@@ -688,6 +961,7 @@ export default function POSPage() {
               </div>
             </div>
 
+            {/* Primary payment buttons */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleCashCharge}
@@ -713,6 +987,28 @@ export default function POSPage() {
               >
                 {saleMutation.isPending ? "Processing..." : "Card"}
               </button>
+            </div>
+
+            {/* NFC Tap to Pay — full width */}
+            <button
+              onClick={handleNfcCharge}
+              disabled={cart.length === 0 || saleMutation.isPending}
+              className={cn(
+                "w-full py-3 rounded-xl font-display font-bold text-sm transition-all flex items-center justify-center gap-2",
+                cart.length === 0
+                  ? "bg-surface-800 text-surface-400 cursor-not-allowed"
+                  : "bg-indigo-600 text-white hover:bg-indigo-500 active:scale-[0.98]"
+              )}
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
+                <circle cx="12" cy="18" r="1.5" fill="currentColor" />
+              </svg>
+              {saleMutation.isPending ? "Processing..." : "Tap to Pay (NFC)"}
+            </button>
+
+            {/* Digital wallets */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => handleCardCharge("APPLE_PAY")}
                 disabled={cart.length === 0 || saleMutation.isPending}
@@ -807,6 +1103,20 @@ export default function POSPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* NFC Tap to Pay Modal */}
+      {nfcModal && (
+        <NfcTapModal
+          total={total}
+          storeId={storeId}
+          cashierId={userId}
+          onSuccess={handleNfcSuccess}
+          onCancel={() => {
+            setNfcModal(false);
+            setPaymentError("");
+          }}
+        />
       )}
     </div>
   );
