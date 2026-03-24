@@ -88,6 +88,18 @@ export function useCreateProduct() {
   });
 }
 
+export function useDeleteProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (productId: string) =>
+      fetch(`${BASE}/inventory?id=${productId}`, { method: "DELETE" }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["inventory-alerts"] });
+    },
+  });
+}
+
 // ─── POS ─────────────────────────────────────────────────
 export function useProcessSale() {
   const qc = useQueryClient();

@@ -8,6 +8,7 @@ import {
   useStockAdjust,
   useAiReorder,
   useCreateProduct,
+  useDeleteProduct,
 } from "@/hooks/useApi";
 import { formatCurrency, cn, getStockStatus, calcMargin } from "@/lib/utils";
 
@@ -64,11 +65,14 @@ export default function InventoryPage() {
     size: "", abv: "", tags: "",
   });
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const { data: products, isLoading } = useInventory(storeId);
   const { data: alerts } = useInventoryAlerts(storeId);
   const stockAdjust = useStockAdjust();
   const aiReorder = useAiReorder();
   const createProduct = useCreateProduct();
+  const deleteProduct = useDeleteProduct();
 
   const productList = (products as Product[]) || [];
   const alertList = (alerts as Alert[]) || [];
@@ -141,6 +145,12 @@ export default function InventoryPage() {
         },
       }
     );
+  }
+
+  function handleDelete(productId: string) {
+    deleteProduct.mutate(productId, {
+      onSuccess: () => setDeletingId(null),
+    });
   }
 
   function handleAiReorder() {
@@ -522,18 +532,49 @@ export default function InventoryPage() {
                               </svg>
                             </button>
                           </div>
+                        ) : deletingId === product.id ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-body text-xs text-danger">Archive this product?</span>
+                            <button
+                              onClick={() => handleDelete(product.id)}
+                              disabled={deleteProduct.isPending}
+                              className="px-3 py-1.5 rounded-lg bg-danger/15 border border-danger/30 text-danger font-display text-xs font-semibold hover:bg-danger/25 transition-colors disabled:opacity-50"
+                            >
+                              {deleteProduct.isPending ? "..." : "Yes, Archive"}
+                            </button>
+                            <button
+                              onClick={() => setDeletingId(null)}
+                              className="px-2 py-1.5 rounded-lg text-surface-400 hover:text-surface-100 transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
                         ) : (
-                          <button
-                            onClick={() => {
-                              setAdjustingId(product.id);
-                              setAdjustQty("");
-                              setAdjustReason("");
-                              setAdjustType("add");
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-surface-800 border border-surface-600 text-surface-300 font-display text-xs font-semibold hover:border-brand hover:text-brand transition-colors"
-                          >
-                            Adjust
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                setAdjustingId(product.id);
+                                setDeletingId(null);
+                                setAdjustQty("");
+                                setAdjustReason("");
+                                setAdjustType("add");
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-surface-800 border border-surface-600 text-surface-300 font-display text-xs font-semibold hover:border-brand hover:text-brand transition-colors"
+                            >
+                              Adjust
+                            </button>
+                            <button
+                              onClick={() => { setDeletingId(product.id); setAdjustingId(null); }}
+                              className="p-1.5 rounded-lg text-surface-500 hover:text-danger hover:bg-danger/10 transition-colors"
+                              title="Archive product"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -635,18 +676,46 @@ export default function InventoryPage() {
                         </button>
                       </div>
                     </div>
+                  ) : deletingId === product.id ? (
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="font-body text-xs text-danger flex-1">Archive "{product.name}"?</span>
+                      <button
+                        onClick={() => handleDelete(product.id)}
+                        disabled={deleteProduct.isPending}
+                        className="px-3 py-2 rounded-xl bg-danger/15 border border-danger/30 text-danger font-display text-xs font-semibold disabled:opacity-50"
+                      >
+                        {deleteProduct.isPending ? "..." : "Archive"}
+                      </button>
+                      <button
+                        onClick={() => setDeletingId(null)}
+                        className="px-3 py-2 rounded-xl bg-surface-800 border border-surface-600 text-surface-300 font-display text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ) : (
-                    <button
-                      onClick={() => {
-                        setAdjustingId(product.id);
-                        setAdjustQty("");
-                        setAdjustReason("");
-                        setAdjustType("add");
-                      }}
-                      className="w-full px-3 py-2 rounded-xl bg-surface-800 border border-surface-600 text-surface-300 font-display text-xs font-semibold hover:border-brand hover:text-brand transition-colors"
-                    >
-                      Adjust Stock
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setAdjustingId(product.id);
+                          setDeletingId(null);
+                          setAdjustQty("");
+                          setAdjustReason("");
+                          setAdjustType("add");
+                        }}
+                        className="flex-1 px-3 py-2 rounded-xl bg-surface-800 border border-surface-600 text-surface-300 font-display text-xs font-semibold hover:border-brand hover:text-brand transition-colors"
+                      >
+                        Adjust Stock
+                      </button>
+                      <button
+                        onClick={() => { setDeletingId(product.id); setAdjustingId(null); }}
+                        className="px-3 py-2 rounded-xl bg-surface-800 border border-danger/30 text-surface-400 font-display text-xs font-semibold hover:text-danger hover:bg-danger/10 transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   )}
                 </div>
               );
