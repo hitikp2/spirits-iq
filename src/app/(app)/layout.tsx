@@ -60,9 +60,9 @@ export default function DashboardLayout({
   // ─── MOBILE LAYOUT ──────────────────────────────────
   if (isMobile) {
     return (
-      <div className="min-h-screen bg-surface-950">
+      <div className="h-[100dvh] flex flex-col bg-surface-950">
         {/* Top Bar */}
-        <header className="sticky top-0 z-40 glass border-b border-surface-600 px-4 py-3">
+        <header className="flex-shrink-0 z-40 glass border-b border-surface-600 px-4 py-3">
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -195,12 +195,12 @@ export default function DashboardLayout({
 
         {/* Content */}
         <main className={cn(
-          "pb-24",
+          "flex-1 overflow-y-auto overscroll-contain",
           pathname === "/pos" ? "px-0 py-0" : "px-4 py-4"
-        )}>{children}</main>
+        )} style={{ WebkitOverflowScrolling: "touch" }}>{children}</main>
 
         {/* Bottom Tab Bar */}
-        <nav className="fixed bottom-0 inset-x-0 z-40 glass border-t border-surface-600">
+        <nav className="flex-shrink-0 z-40 glass border-t border-surface-600">
           <div className="flex justify-around items-center py-2 pb-5">
             {NAV_ITEMS.slice(0, 6).map((item) => {
               const Icon = item.icon;
