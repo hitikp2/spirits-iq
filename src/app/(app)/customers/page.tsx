@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { cn, formatCurrency, formatPhone } from "@/lib/utils";
 import { useCustomers } from "@/hooks/useApi";
@@ -33,6 +33,9 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [tier, setTier] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailData, setDetailData] = useState<any>(null);
 
   const params: Record<string, string> = {};
   if (search) params.search = search;
@@ -44,6 +47,32 @@ export default function CustomersPage() {
 
   const customers = Array.isArray(data) ? data : [];
   const meta = (data as any)?.meta ?? null;
+
+  const openDetail = useCallback(async (customer: any) => {
+    setSelectedCustomer(customer);
+    setDetailLoading(true);
+    setDetailData(null);
+    try {
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "detail", id: customer.id }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setDetailData(json.data);
+      }
+    } catch {
+      // Keep basic customer data from list
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setSelectedCustomer(null);
+    setDetailData(null);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -116,9 +145,10 @@ export default function CustomersPage() {
       ) : (
         <div className="space-y-2">
           {customers.map((c: any) => (
-            <div
+            <button
               key={c.id}
-              className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl bg-surface-900 border border-surface-600 hover:border-surface-400 transition-colors"
+              onClick={() => openDetail(c)}
+              className="w-full text-left flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl bg-surface-900 border border-surface-600 hover:border-brand/50 active:scale-[0.99] transition-all"
             >
               {/* Avatar */}
               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -164,7 +194,7 @@ export default function CustomersPage() {
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400">SMS</span>
                 )}
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -190,6 +220,241 @@ export default function CustomersPage() {
             >
               Next
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Detail Modal */}
+      {selectedCustomer && (
+        <CustomerDetailModal
+          customer={selectedCustomer}
+          detail={detailData}
+          loading={detailLoading}
+          onClose={closeDetail}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ──────────────── Customer Detail Modal ──────────────── */
+function CustomerDetailModal({
+  customer,
+  detail,
+  loading,
+  onClose,
+}: {
+  customer: any;
+  detail: any;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"purchases" | "points">("purchases");
+  const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || "Unknown";
+  const initials = ((customer.firstName || "?")[0] + (customer.lastName || "")[0]).toUpperCase();
+  const transactions = detail?.transactions || [];
+  const loyaltyTxns = detail?.loyaltyTxns || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full sm:max-w-lg max-h-[90vh] bg-surface-950 border border-surface-700 rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col animate-fade-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 pt-5 pb-4 border-b border-surface-700">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-12 w-12 rounded-full bg-surface-800 flex items-center justify-center">
+                <span className="font-display text-base font-bold text-surface-200">{initials}</span>
+              </div>
+              <div>
+                <h2 className="font-display text-lg font-bold text-surface-100">{name}</h2>
+                <p className="font-mono text-xs text-surface-400">
+                  {customer.phone ? formatPhone(customer.phone) : "No phone"}
+                  {customer.email ? ` · ${customer.email}` : ""}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-surface-800 border border-surface-700 text-surface-400 flex items-center justify-center text-sm active:scale-90 transition-transform"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Stats row */}
+          <div className="flex items-center gap-4 mt-4">
+            <div>
+              <p className="font-mono text-base font-bold text-brand">{formatCurrency(Number(customer.totalSpent || 0))}</p>
+              <p className="font-mono text-[10px] text-surface-400">lifetime</p>
+            </div>
+            <div className="w-px h-8 bg-surface-700" />
+            <div>
+              <p className="font-mono text-base font-bold text-surface-100">{customer.visitCount || 0}</p>
+              <p className="font-mono text-[10px] text-surface-400">visits</p>
+            </div>
+            <div className="w-px h-8 bg-surface-700" />
+            <div>
+              <p className="font-mono text-base font-bold text-surface-100">{customer.loyaltyPoints || 0}</p>
+              <p className="font-mono text-[10px] text-surface-400">points</p>
+            </div>
+            <div className="w-px h-8 bg-surface-700" />
+            <span className={cn(
+              "px-2.5 py-1 rounded-full text-xs font-medium",
+              TIER_COLORS[customer.tier] ?? TIER_COLORS.REGULAR
+            )}>
+              {(customer.tier || "REGULAR").replace("_", " ")}
+            </span>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4">
+            <button
+              onClick={() => setTab("purchases")}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                tab === "purchases" ? "bg-brand/15 text-brand" : "text-surface-400 hover:text-surface-200"
+              )}
+            >
+              Purchases ({transactions.length})
+            </button>
+            <button
+              onClick={() => setTab("points")}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                tab === "points" ? "bg-brand/15 text-brand" : "text-surface-400 hover:text-surface-200"
+              )}
+            >
+              Points History ({loyaltyTxns.length})
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-3" style={{ maxHeight: "50vh" }}>
+          {loading ? (
+            <div className="space-y-3 py-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
+            </div>
+          ) : tab === "purchases" ? (
+            transactions.length === 0 ? (
+              <p className="text-center font-body text-sm text-surface-400 py-8">No purchases yet</p>
+            ) : (
+              <div className="space-y-2">
+                {transactions.map((txn: any) => (
+                  <TransactionCard key={txn.id} txn={txn} />
+                ))}
+              </div>
+            )
+          ) : (
+            loyaltyTxns.length === 0 ? (
+              <p className="text-center font-body text-sm text-surface-400 py-8">No points history</p>
+            ) : (
+              <div className="space-y-1.5">
+                {loyaltyTxns.map((lt: any) => (
+                  <div key={lt.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-surface-900 border border-surface-700/50">
+                    <div>
+                      <p className="font-body text-xs text-surface-200">{lt.description}</p>
+                      <p className="font-mono text-[10px] text-surface-500 mt-0.5">
+                        {new Date(lt.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className={cn(
+                        "font-mono text-sm font-bold",
+                        lt.points > 0 ? "text-emerald-400" : "text-red-400"
+                      )}>
+                        {lt.points > 0 ? "+" : ""}{lt.points}
+                      </p>
+                      <p className="font-mono text-[10px] text-surface-500">bal: {lt.balance}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-surface-700">
+          <button
+            onClick={onClose}
+            className="w-full py-3 rounded-xl bg-surface-800 border border-surface-700 text-surface-200 text-sm font-semibold active:scale-[0.97] transition-transform"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────── Transaction Card ──────────────── */
+function TransactionCard({ txn }: { txn: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const items = txn.items || [];
+  const date = new Date(txn.createdAt).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  });
+  const time = new Date(txn.createdAt).toLocaleTimeString("en-US", {
+    hour: "numeric", minute: "2-digit",
+  });
+
+  return (
+    <div className="rounded-xl bg-surface-900 border border-surface-700/50 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-3.5 text-left active:bg-surface-800 transition-colors"
+      >
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="font-mono text-xs font-semibold text-surface-100">{txn.transactionNum}</p>
+            <span className="font-mono text-[10px] text-surface-500">{date} {time}</span>
+          </div>
+          <p className="font-body text-[11px] text-surface-400 mt-0.5">
+            {items.length} item{items.length !== 1 ? "s" : ""}
+            {txn.paymentMethod ? ` · ${txn.paymentMethod}` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-sm font-bold text-brand">{formatCurrency(Number(txn.total))}</p>
+          <span className={cn(
+            "text-surface-500 text-xs transition-transform",
+            expanded && "rotate-180"
+          )}>
+            ▾
+          </span>
+        </div>
+      </button>
+
+      {expanded && items.length > 0 && (
+        <div className="px-3.5 pb-3 pt-0 border-t border-surface-700/50">
+          <div className="space-y-1.5 mt-2.5">
+            {items.map((item: any, i: number) => (
+              <div key={i} className="flex justify-between text-[11px]">
+                <span className="text-surface-300">
+                  <span className="font-mono text-brand mr-1">{item.quantity}x</span>
+                  {item.product?.name || "Product"}{item.product?.size ? ` (${item.product.size})` : ""}
+                </span>
+                <span className="font-mono text-surface-300">{formatCurrency(Number(item.total))}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between mt-2.5 pt-2 border-t border-surface-700/30">
+            <span className="font-body text-[10px] text-surface-400">Subtotal</span>
+            <span className="font-mono text-[10px] text-surface-400">{formatCurrency(Number(txn.subtotal))}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-body text-[10px] text-surface-400">Tax</span>
+            <span className="font-mono text-[10px] text-surface-400">{formatCurrency(Number(txn.taxAmount))}</span>
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="font-body text-xs font-semibold text-surface-200">Total</span>
+            <span className="font-mono text-xs font-bold text-brand">{formatCurrency(Number(txn.total))}</span>
           </div>
         </div>
       )}

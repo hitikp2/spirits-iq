@@ -136,6 +136,47 @@ export async function POST(request: NextRequest) {
       } satisfies ApiResponse);
     }
 
+    if (action === "detail") {
+      const { id } = body;
+      if (!id) {
+        return NextResponse.json(
+          { success: false, error: "Customer id is required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+
+      const customer = await db.customer.findUnique({
+        where: { id },
+        include: {
+          transactions: {
+            orderBy: { createdAt: "desc" },
+            take: 50,
+            include: {
+              items: {
+                include: { product: { select: { name: true, size: true } } },
+              },
+            },
+          },
+          loyaltyTxns: {
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          },
+        },
+      });
+
+      if (!customer) {
+        return NextResponse.json(
+          { success: false, error: "Customer not found" } satisfies ApiResponse,
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: customer,
+      } satisfies ApiResponse);
+    }
+
     return NextResponse.json(
       { success: false, error: "Invalid action" } satisfies ApiResponse,
       { status: 400 }

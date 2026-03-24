@@ -175,16 +175,41 @@ export async function completeTransaction(params: {
       });
     }
 
-    // Update customer stats if applicable
+    // Update customer stats + award loyalty points
     if (params.customerId) {
-      await tx.customer.update({
-        where: { id: params.customerId },
-        data: {
-          totalSpent: { increment: total },
-          visitCount: { increment: 1 },
-          lastVisit: new Date(),
-        },
-      });
+      const customer = await tx.customer.findUnique({ where: { id: params.customerId } });
+      if (customer) {
+        // Award points: 1 point per dollar (check LoyaltyConfig if exists)
+        const loyaltyConfig = await tx.loyaltyConfig.findUnique({ where: { storeId } });
+        const pointsPerDollar = loyaltyConfig ? Number(loyaltyConfig.pointsPerDollar) : 1;
+        const earnedPoints = Math.floor(total * pointsPerDollar);
+        const newBalance = customer.loyaltyPoints + earnedPoints;
+
+        await tx.customer.update({
+          where: { id: params.customerId },
+          data: {
+            totalSpent: { increment: total },
+            visitCount: { increment: 1 },
+            lastVisit: new Date(),
+            loyaltyPoints: newBalance,
+          },
+        });
+
+        // Record loyalty transaction
+        if (earnedPoints > 0) {
+          await tx.loyaltyTransaction.create({
+            data: {
+              customerId: params.customerId,
+              storeId,
+              type: "EARN_PURCHASE",
+              points: earnedPoints,
+              balance: newBalance,
+              description: `Purchase ${txn.transactionNum}`,
+              reference: txn.id,
+            },
+          });
+        }
+      }
     }
 
     return txn;
