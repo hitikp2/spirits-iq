@@ -375,6 +375,7 @@ export default function POSPage() {
     orderNumber: string; paymentMethod: string;
     ageVerified?: boolean; verificationMethod?: string;
     customerId?: string; customerName?: string; customerPhone?: string;
+    transactionId?: string;
   } | null>(null);
 
   // Age verification
@@ -513,7 +514,7 @@ export default function POSPage() {
   }, []);
 
   // Save order data and show receipt after successful sale
-  const completeOrder = useCallback((payMethod: string) => {
+  const completeOrder = useCallback((payMethod: string, transactionId?: string) => {
     const orderItems = cart.map((item) => {
       const product = products.find((p: Product) => p.id === item.productId);
       return {
@@ -536,6 +537,7 @@ export default function POSPage() {
       customerId: customerId || undefined,
       customerName: customerName || undefined,
       customerPhone: customerPhone || undefined,
+      transactionId,
     });
     setCart([]);
     setCustomerId(undefined);
@@ -571,8 +573,8 @@ export default function POSPage() {
         verificationMethod: verificationMethod || undefined,
       },
       {
-        onSuccess: () => {
-          completeOrder("CASH");
+        onSuccess: (data: any) => {
+          completeOrder("CASH", data?.id);
         },
       }
     );
@@ -658,8 +660,8 @@ export default function POSPage() {
           verificationMethod: verificationMethod || undefined,
         },
         {
-          onSuccess: () => {
-            completeOrder("NFC");
+          onSuccess: (data: any) => {
+            completeOrder("NFC", data?.id);
           },
         }
       );
@@ -690,8 +692,8 @@ export default function POSPage() {
           verificationMethod: verificationMethod || undefined,
         },
         {
-          onSuccess: () => {
-            completeOrder("CARD");
+          onSuccess: (data: any) => {
+            completeOrder("CARD", data?.id);
           },
         }
       );
@@ -1322,6 +1324,7 @@ export default function POSPage() {
           storeId={storeId}
           ageVerified={lastOrder.ageVerified}
           verificationMethod={lastOrder.verificationMethod}
+          transactionId={lastOrder.transactionId}
           onSendEmail={() => toast.success("Receipt sent via email")}
         />
       )}

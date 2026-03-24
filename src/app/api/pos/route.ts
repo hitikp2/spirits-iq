@@ -71,6 +71,106 @@ export async function POST(request: NextRequest) {
       } satisfies ApiResponse);
     }
 
+    // ─── Link customer to existing transaction (post-sale) ───
+    if (action === "link-customer") {
+      const { transactionId, phone } = body;
+      if (!transactionId || !phone || !storeId) {
+        return NextResponse.json(
+          { success: false, error: "transactionId, phone, and storeId required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+
+      const cleanPhone = phone.replace(/\D/g, "").slice(-10);
+
+      // Find or create customer
+      let customer = await db.customer.findFirst({
+        where: { storeId, phone: { endsWith: cleanPhone } },
+      });
+
+      if (!customer) {
+        customer = await db.customer.create({
+          data: {
+            storeId,
+            phone: cleanPhone,
+            firstName: "New",
+            lastName: "Customer",
+            tier: "REGULAR",
+            tags: [],
+            smsOptedIn: true,
+            smsOptInDate: new Date(),
+          },
+        });
+      }
+
+      // Get the transaction
+      const txn = await db.transaction.findUnique({ where: { id: transactionId } });
+      if (!txn) {
+        return NextResponse.json(
+          { success: false, error: "Transaction not found" } satisfies ApiResponse,
+          { status: 404 }
+        );
+      }
+
+      // Only link if not already linked to a customer
+      if (txn.customerId) {
+        return NextResponse.json({
+          success: true,
+          data: { customer, alreadyLinked: true },
+        } satisfies ApiResponse);
+      }
+
+      // Award loyalty points
+      const loyaltyConfig = await db.loyaltyConfig.findUnique({ where: { storeId } });
+      const pointsPerDollar = loyaltyConfig ? Number(loyaltyConfig.pointsPerDollar) : 1;
+      const total = Number(txn.total);
+      const earnedPoints = Math.floor(total * pointsPerDollar);
+      const newBalance = customer.loyaltyPoints + earnedPoints;
+
+      await db.$transaction(async (tx) => {
+        // Link transaction to customer
+        await tx.transaction.update({
+          where: { id: transactionId },
+          data: { customerId: customer!.id },
+        });
+
+        // Update customer stats
+        await tx.customer.update({
+          where: { id: customer!.id },
+          data: {
+            totalSpent: { increment: total },
+            visitCount: { increment: 1 },
+            lastVisit: new Date(),
+            loyaltyPoints: newBalance,
+          },
+        });
+
+        // Record loyalty transaction
+        if (earnedPoints > 0) {
+          await tx.loyaltyTransaction.create({
+            data: {
+              customerId: customer!.id,
+              storeId: storeId!,
+              type: "EARN_PURCHASE",
+              points: earnedPoints,
+              balance: newBalance,
+              description: `Purchase ${txn.transactionNum}`,
+              reference: txn.id,
+            },
+          });
+        }
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          customer: { ...customer, loyaltyPoints: newBalance },
+          pointsAwarded: earnedPoints,
+          linked: true,
+        },
+      } satisfies ApiResponse);
+    }
+
     // ─── Complete sale (after payment or for cash) ───────────
     const {
       customerId,

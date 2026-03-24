@@ -30,6 +30,7 @@ interface ReceiptModalProps {
   storeId?: string;
   ageVerified?: boolean;
   verificationMethod?: string;
+  transactionId?: string;
   onSendEmail?: () => void;
 }
 
@@ -50,6 +51,7 @@ export default function ReceiptModal({
   storeId,
   ageVerified,
   verificationMethod: ageMethod,
+  transactionId,
   onSendEmail,
 }: ReceiptModalProps) {
   const [view, setView] = useState<"digital" | "print">("digital");
@@ -96,6 +98,30 @@ export default function ReceiptModal({
   const sendReceipt = useCallback(async (phone: string, name: string) => {
     const greeting = name.trim() ? `Hi ${name.trim()}! ` : "";
     setSmsSending(true);
+
+    // If no customer was linked to this transaction, retroactively link by phone
+    if (!customerId && transactionId && phone.trim()) {
+      try {
+        const linkRes = await fetch("/api/pos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "link-customer",
+            transactionId,
+            phone: phone.trim(),
+            storeId,
+          }),
+        });
+        const linkJson = await linkRes.json();
+        if (linkJson.success && linkJson.data?.linked) {
+          const pts = linkJson.data.pointsAwarded || 0;
+          toast.success(`Customer linked — ${pts} points awarded`);
+        }
+      } catch {
+        // Non-critical — continue with SMS send
+      }
+    }
+
     try {
       let mediaUrl: string | undefined;
 
@@ -151,7 +177,7 @@ export default function ReceiptModal({
     } finally {
       setSmsSending(false);
     }
-  }, [sendAsImage, receiptText, storeId, orderNumber, total]);
+  }, [sendAsImage, receiptText, storeId, orderNumber, total, customerId, transactionId]);
 
   // Called from the SMS panel send button
   const handleSendSms = useCallback(() => {
