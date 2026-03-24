@@ -23,9 +23,15 @@ interface QuickAddForm {
   costPrice: string;
   quantity: string;
   size: string;
+  description: string;
+  abv: string;
+  imageUrl: string;
 }
 
-const EMPTY_FORM: QuickAddForm = { name: "", brand: "", retailPrice: "", costPrice: "", quantity: "1", size: "750ml" };
+const EMPTY_FORM: QuickAddForm = {
+  name: "", brand: "", retailPrice: "", costPrice: "", quantity: "1",
+  size: "750ml", description: "", abv: "", imageUrl: "",
+};
 
 interface ScannerModalProps {
   open: boolean;
@@ -48,6 +54,8 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
   const [quickAdd, setQuickAdd] = useState(false);
   const [quickForm, setQuickForm] = useState<QuickAddForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
+  const [identifying, setIdentifying] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -186,6 +194,8 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
       setQuickAdd(false);
       setQuickForm(EMPTY_FORM);
       setSaving(false);
+      setPhotoBase64(null);
+      setIdentifying(false);
     }
   }, [open]);
 
@@ -209,7 +219,6 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
     onAddToCart(scanResult.id);
     setAdded(true);
     setTimeout(() => {
-      // Reset for next scan — interval loop is still running, just re-enable scanning
       setAdded(false);
       setScanResult(null);
       setScannedCode(null);
@@ -226,26 +235,108 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
       setManualEntry(false);
       setManualValue("");
     } else {
-      // No match — offer quick-add with this code as barcode
       setScannedCode(manualValue.trim());
       setManualEntry(false);
       setManualValue("");
     }
   }, [manualValue, matchProduct]);
 
-  // Open quick-add form pre-filled with scanned barcode
-  const openQuickAdd = useCallback(() => {
+  // Capture photo from live camera feed
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return null;
+
+    const canvas = document.createElement("canvas");
+    // Use a reasonable resolution for the photo
+    const w = Math.min(video.videoWidth, 1280);
+    const h = Math.round((w / video.videoWidth) * video.videoHeight);
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }, []);
+
+  // Open quick-add: capture photo + send to AI
+  const openQuickAdd = useCallback(async () => {
     scanningRef.current = false;
     setQuickAdd(true);
     setQuickForm(EMPTY_FORM);
-  }, []);
+    setError(null);
+
+    // Capture current camera frame
+    const photo = capturePhoto();
+    if (photo) {
+      setPhotoBase64(photo);
+      // Auto-identify with AI
+      setIdentifying(true);
+      try {
+        const res = await fetch("/api/product-identify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: photo, barcode: scannedCode || undefined }),
+        });
+        const data = await res.json();
+        if (data.success && data.data) {
+          const ai = data.data;
+          setQuickForm(f => ({
+            ...f,
+            name: ai.name || f.name,
+            brand: ai.brand || f.brand,
+            retailPrice: ai.retailPrice ? String(ai.retailPrice) : f.retailPrice,
+            costPrice: ai.costPrice ? String(ai.costPrice) : f.costPrice,
+            size: ai.size || f.size,
+            description: ai.description || f.description,
+            abv: ai.abv || f.abv,
+            imageUrl: ai.imageUrl || f.imageUrl,
+          }));
+        }
+      } catch {
+        // AI identification failed silently — user can fill manually
+      }
+      setIdentifying(false);
+    } else {
+      setPhotoBase64(null);
+    }
+  }, [capturePhoto, scannedCode]);
+
+  // Retake photo
+  const retakePhoto = useCallback(async () => {
+    const photo = capturePhoto();
+    if (!photo) return;
+    setPhotoBase64(photo);
+    setIdentifying(true);
+    try {
+      const res = await fetch("/api/product-identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: photo, barcode: scannedCode || undefined }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        const ai = data.data;
+        setQuickForm(f => ({
+          ...f,
+          name: ai.name || f.name,
+          brand: ai.brand || f.brand,
+          retailPrice: ai.retailPrice ? String(ai.retailPrice) : f.retailPrice,
+          costPrice: ai.costPrice ? String(ai.costPrice) : f.costPrice,
+          size: ai.size || f.size,
+          description: ai.description || f.description,
+          abv: ai.abv || f.abv,
+          imageUrl: ai.imageUrl || f.imageUrl,
+        }));
+      }
+    } catch { /* silent */ }
+    setIdentifying(false);
+  }, [capturePhoto, scannedCode]);
 
   // Save quick-add product via API then add to cart
   const handleQuickSave = useCallback(async () => {
     if (!quickForm.name.trim()) return;
     setSaving(true);
     try {
-      // Generate a simple SKU from barcode or name
       const sku = scannedCode || quickForm.name.replace(/\s+/g, "-").toUpperCase().slice(0, 20);
 
       const res = await fetch("/api/inventory", {
@@ -258,19 +349,20 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
           sku,
           name: quickForm.name.trim(),
           brand: quickForm.brand.trim() || undefined,
+          description: quickForm.description.trim() || undefined,
           retailPrice: parseFloat(quickForm.retailPrice) || 0,
           costPrice: parseFloat(quickForm.costPrice) || 0,
           quantity: parseInt(quickForm.quantity) || 1,
           size: quickForm.size.trim() || undefined,
+          abv: quickForm.abv ? parseFloat(quickForm.abv) : undefined,
+          imageUrl: quickForm.imageUrl || undefined,
           isAgeRestricted: true,
         }),
       });
 
       const data = await res.json();
       if (data.success && data.data?.id) {
-        // Notify parent to refetch inventory
         onProductCreated?.();
-        // Show as scan result so user can add to cart
         setScanResult({
           id: data.data.id,
           sku: data.data.sku,
@@ -283,6 +375,7 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
         });
         setQuickAdd(false);
         setScannedCode(null);
+        setPhotoBase64(null);
       } else {
         setError(data.error || "Failed to create product");
         setTimeout(() => setError(null), 3000);
@@ -347,7 +440,7 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
         </div>
 
         {/* Scan frame — centered */}
-        {!showManualFallback && (
+        {!showManualFallback && !quickAdd && (
           <div className="relative z-10 w-60 h-[150px]">
             {/* Corners */}
             <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-brand rounded-tl-lg" />
@@ -375,10 +468,13 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
                 </p>
                 <button
                   onClick={openQuickAdd}
-                  className="px-5 py-2.5 rounded-xl bg-brand text-surface-950 font-bold text-sm active:scale-95 transition-transform"
+                  className="px-5 py-2.5 rounded-xl bg-brand text-surface-950 font-bold text-sm active:scale-95 transition-transform flex items-center gap-2"
                 >
-                  ＋ Add New Product
+                  <span className="text-base">📸</span> Snap & Add Product
                 </button>
+                <p className="text-[10px] text-white/40 mt-1">
+                  AI will identify from photo
+                </p>
               </>
             ) : (
               <p className="text-sm font-semibold text-white/60">
@@ -419,122 +515,192 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
           </div>
         )}
 
-        {/* Quick-add form panel */}
-        <div
-          className={cn(
-            "absolute bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-700 rounded-t-[20px] p-5 transition-transform duration-300 z-20 max-h-[75vh] overflow-y-auto",
-            quickAdd ? "translate-y-0" : "translate-y-full"
-          )}
-          style={{
-            transitionTimingFunction: "cubic-bezier(.34,1.56,.64,1)",
-            paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
-          }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-[15px] font-bold text-surface-100">New Product</h3>
-              {scannedCode && (
-                <p className="text-[11px] text-surface-400 font-mono mt-0.5">Barcode: {scannedCode}</p>
-              )}
+        {/* ─── Quick-Add Panel ─── */}
+        {quickAdd && (
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-surface-900/95 backdrop-blur-xl border-t border-surface-700 rounded-t-[20px] z-20 flex flex-col"
+            style={{
+              maxHeight: "82vh",
+              paddingBottom: "max(16px, env(safe-area-inset-bottom, 16px))",
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-2 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-brand/15 flex items-center justify-center">
+                  <span className="text-sm">✨</span>
+                </div>
+                <div>
+                  <h3 className="text-[15px] font-bold text-surface-100">New Product</h3>
+                  {scannedCode && (
+                    <p className="text-[10px] text-surface-400 font-mono">Barcode: {scannedCode}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => { setQuickAdd(false); setPhotoBase64(null); scanningRef.current = true; }}
+                className="px-3 py-1.5 rounded-lg text-surface-400 text-xs font-medium hover:bg-surface-800 active:scale-95 transition-all"
+              >
+                Cancel
+              </button>
             </div>
-            <button
-              onClick={() => { setQuickAdd(false); scanningRef.current = true; }}
-              className="text-surface-400 text-sm active:scale-90 transition-transform"
-            >
-              Cancel
-            </button>
-          </div>
 
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={quickForm.name}
-              onChange={(e) => setQuickForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="Product name *"
-              autoFocus
-              className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
-            />
-            <input
-              type="text"
-              value={quickForm.brand}
-              onChange={(e) => setQuickForm(f => ({ ...f, brand: e.target.value }))}
-              placeholder="Brand"
-              className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
-            />
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Retail $</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  value={quickForm.retailPrice}
-                  onChange={(e) => setQuickForm(f => ({ ...f, retailPrice: e.target.value }))}
-                  placeholder="0.00"
-                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Cost $</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  value={quickForm.costPrice}
-                  onChange={(e) => setQuickForm(f => ({ ...f, costPrice: e.target.value }))}
-                  placeholder="0.00"
-                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
-                />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Qty</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={quickForm.quantity}
-                  onChange={(e) => setQuickForm(f => ({ ...f, quantity: e.target.value }))}
-                  placeholder="1"
-                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Size</label>
+            {/* Scrollable content */}
+            <div className="overflow-y-auto px-5 pb-4 space-y-3 flex-1 min-h-0">
+
+              {/* Photo preview + retake */}
+              {photoBase64 ? (
+                <div className="relative rounded-xl overflow-hidden bg-surface-800">
+                  <img
+                    src={photoBase64}
+                    alt="Product"
+                    className="w-full h-32 object-cover"
+                  />
+                  {identifying && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-medium text-white">AI identifying...</span>
+                    </div>
+                  )}
+                  {!identifying && (
+                    <button
+                      onClick={retakePhoto}
+                      className="absolute bottom-2 right-2 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur text-white text-[11px] font-medium active:scale-95 transition-transform"
+                    >
+                      📸 Retake
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const photo = capturePhoto();
+                    if (photo) { setPhotoBase64(photo); retakePhoto(); }
+                  }}
+                  className="w-full h-24 rounded-xl border-2 border-dashed border-surface-600 flex items-center justify-center gap-2 text-surface-400 text-sm active:scale-[0.98] transition-transform"
+                >
+                  <span className="text-lg">📸</span> Take Product Photo
+                </button>
+              )}
+
+              {/* Form fields */}
+              <div>
+                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Product Name *</label>
                 <input
                   type="text"
-                  value={quickForm.size}
-                  onChange={(e) => setQuickForm(f => ({ ...f, size: e.target.value }))}
-                  placeholder="750ml"
-                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                  value={quickForm.name}
+                  onChange={(e) => setQuickForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder={identifying ? "Identifying..." : "e.g. Michelob Ultra 12-Pack"}
+                  disabled={identifying}
+                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand disabled:opacity-50"
                 />
               </div>
+
+              <div>
+                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Brand</label>
+                <input
+                  type="text"
+                  value={quickForm.brand}
+                  onChange={(e) => setQuickForm(f => ({ ...f, brand: e.target.value }))}
+                  placeholder={identifying ? "Identifying..." : "e.g. Anheuser-Busch"}
+                  disabled={identifying}
+                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand disabled:opacity-50"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Retail $</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    value={quickForm.retailPrice}
+                    onChange={(e) => setQuickForm(f => ({ ...f, retailPrice: e.target.value }))}
+                    placeholder="0.00"
+                    disabled={identifying}
+                    className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand disabled:opacity-50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Cost $</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    value={quickForm.costPrice}
+                    onChange={(e) => setQuickForm(f => ({ ...f, costPrice: e.target.value }))}
+                    placeholder="0.00"
+                    disabled={identifying}
+                    className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Qty</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={quickForm.quantity}
+                    onChange={(e) => setQuickForm(f => ({ ...f, quantity: e.target.value }))}
+                    placeholder="1"
+                    className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Size</label>
+                  <input
+                    type="text"
+                    value={quickForm.size}
+                    onChange={(e) => setQuickForm(f => ({ ...f, size: e.target.value }))}
+                    placeholder="750ml"
+                    disabled={identifying}
+                    className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand disabled:opacity-50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">ABV %</label>
+                  <input
+                    type="text"
+                    value={quickForm.abv}
+                    onChange={(e) => setQuickForm(f => ({ ...f, abv: e.target.value }))}
+                    placeholder="5%"
+                    disabled={identifying}
+                    className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-xs text-danger">{error}</p>
+              )}
             </div>
 
-            {error && (
-              <p className="text-xs text-danger">{error}</p>
-            )}
-
-            <button
-              onClick={handleQuickSave}
-              disabled={saving || !quickForm.name.trim()}
-              className={cn(
-                "w-full py-3.5 rounded-xl font-bold text-sm font-display flex items-center justify-center gap-2 transition-all active:scale-[0.97]",
-                saving || !quickForm.name.trim()
-                  ? "bg-surface-700 text-surface-400"
-                  : "bg-brand text-surface-950"
-              )}
-            >
-              {saving ? "Saving..." : "Save & Add to Cart"}
-            </button>
+            {/* Fixed save button at bottom */}
+            <div className="px-5 pt-2 shrink-0">
+              <button
+                onClick={handleQuickSave}
+                disabled={saving || identifying || !quickForm.name.trim()}
+                className={cn(
+                  "w-full py-3.5 rounded-xl font-bold text-sm font-display flex items-center justify-center gap-2 transition-all active:scale-[0.97]",
+                  saving || identifying || !quickForm.name.trim()
+                    ? "bg-surface-700 text-surface-400"
+                    : "bg-brand text-surface-950"
+                )}
+              >
+                {saving ? "Saving..." : identifying ? "Waiting for AI..." : "Save & Add to Cart"}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Scan result panel */}
         <div
           className={cn(
             "absolute bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-700 rounded-t-[20px] p-5 transition-transform duration-300 z-20",
-            scanResult ? "translate-y-0" : "translate-y-full"
+            scanResult && !quickAdd ? "translate-y-0" : "translate-y-full"
           )}
           style={{
             transitionTimingFunction: "cubic-bezier(.34,1.56,.64,1)",
