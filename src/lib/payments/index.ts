@@ -90,6 +90,8 @@ export async function completeTransaction(params: {
   ageVerified?: boolean;
   verificationMethod?: string;
   tip?: number;
+  platformFee?: number;
+  connectedAccountId?: string;
 }) {
   const { storeId, items, paymentMethod } = params;
 
@@ -134,6 +136,8 @@ export async function completeTransaction(params: {
         cardBrand: params.cardBrand || null,
         ageVerified: params.ageVerified || false,
         verificationMethod: params.verificationMethod || null,
+        platformFee: params.platformFee || 0,
+        connectedAccountId: params.connectedAccountId || null,
         items: {
           create: items.map((item) => ({
             productId: item.productId,

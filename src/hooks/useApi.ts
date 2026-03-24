@@ -287,6 +287,59 @@ export function useTestIntegration() {
   });
 }
 
+// ─── Stripe Connect ─────────────────────────────────────
+export function useConnectStatus(storeId: string) {
+  return useQuery({
+    queryKey: ["connect-status", storeId],
+    queryFn: () => fetcher<{
+      connected: boolean;
+      accountId?: string;
+      chargesEnabled?: boolean;
+      payoutsEnabled?: boolean;
+      detailsSubmitted?: boolean;
+      feePercent?: number;
+      reason?: string;
+    }>(`${BASE}/connect?storeId=${storeId}`),
+    enabled: !!storeId,
+    refetchInterval: 30_000, // Check every 30s during onboarding
+  });
+}
+
+export function useConnectOnboard() {
+  return useMutation({
+    mutationFn: (body: { returnUrl: string }) =>
+      poster<{ url: string }>(`${BASE}/connect`, { action: "onboard", ...body }),
+  });
+}
+
+export function useConnectDashboardLink() {
+  return useMutation({
+    mutationFn: () =>
+      poster<{ url: string }>(`${BASE}/connect`, { action: "dashboard-link" }),
+  });
+}
+
+export function useConnectDisconnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => poster(`${BASE}/connect`, { action: "disconnect" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["connect-status"] }),
+  });
+}
+
+export function useConnectEarnings(storeId: string, days = 30) {
+  return useQuery({
+    queryKey: ["connect-earnings", storeId, days],
+    queryFn: () => fetcher<{
+      totalFees: number;
+      totalVolume: number;
+      transactionCount: number;
+      periodDays: number;
+    }>(`${BASE}/connect?storeId=${storeId}&action=earnings&days=${days}`),
+    enabled: !!storeId,
+  });
+}
+
 // ─── Settings Update ────────────────────────────────────
 export function useUpdateSettings() {
   const qc = useQueryClient();

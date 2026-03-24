@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCredentials } from "@/lib/integrations";
+import { getApplicationFee } from "@/lib/services/connect";
 import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -48,13 +49,24 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const paymentIntent = await stripe.paymentIntents.create({
+      // Check for Connect platform fee
+      const connectFee = await getApplicationFee(storeId, amount);
+      const intentParams: any = {
         amount,
         currency: "usd",
         payment_method_types: ["card_present"],
         capture_method: "automatic",
         metadata: { storeId, cashierId: cashierId || "" },
-      });
+      };
+
+      if (connectFee) {
+        intentParams.application_fee_amount = connectFee.feeAmount;
+        intentParams.transfer_data = { destination: connectFee.connectedAccountId };
+        intentParams.metadata.platformFee = String(connectFee.feeAmount);
+        intentParams.metadata.connectedAccountId = connectFee.connectedAccountId;
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create(intentParams);
 
       return NextResponse.json({
         success: true,

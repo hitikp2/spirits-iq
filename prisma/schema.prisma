@@ -288,6 +288,8 @@ model Transaction {
   cardBrand          String?
   ageVerified        Boolean           @default(false)
   verificationMethod String?
+  platformFee        Decimal           @default(0)
+  connectedAccountId String?
   items              TransactionItem[]
   journalEntryId     String?
   notes              String?

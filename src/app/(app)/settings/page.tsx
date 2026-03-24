@@ -7,6 +7,7 @@ import {
   useSettings, useEmployees, useIntegrations,
   useConnectIntegration, useDisconnectIntegration, useTestIntegration,
   useUpdateSettings,
+  useConnectStatus, useConnectOnboard, useConnectDisconnect, useConnectDashboardLink,
 } from "@/hooks/useApi";
 
 type Tab = "store" | "team" | "integrations" | "ai" | "account";
@@ -256,6 +257,10 @@ export default function Page() {
               All services work out of the box with your subscription. Connect your own accounts below for custom billing or higher limits.
             </p>
           </div>
+
+          {/* Stripe Connect Card */}
+          <StripeConnectCard storeId={storeId} />
+
           {intLoading ? (
             <SettingsSkeleton />
           ) : intError ? (
@@ -353,6 +358,139 @@ export default function Page() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Stripe Connect Card ─────────────────────────────────
+function StripeConnectCard({ storeId }: { storeId: string }) {
+  const { data: status, isLoading } = useConnectStatus(storeId);
+  const onboard = useConnectOnboard();
+  const disconnect = useConnectDisconnect();
+  const dashboardLink = useConnectDashboardLink();
+
+  const handleOnboard = async () => {
+    try {
+      const result = await onboard.mutateAsync({
+        returnUrl: `${window.location.origin}/settings`,
+      });
+      window.location.href = result.url;
+    } catch {
+      // Error handled by React Query
+    }
+  };
+
+  const handleDashboard = async () => {
+    try {
+      const result = await dashboardLink.mutateAsync();
+      window.open(result.url, "_blank");
+    } catch {
+      // Error handled by React Query
+    }
+  };
+
+  if (isLoading) return null;
+
+  const isConnected = status?.connected === true;
+
+  return (
+    <div className={cn(
+      "rounded-2xl border overflow-hidden",
+      isConnected
+        ? "bg-emerald-500/5 border-emerald-500/30"
+        : "bg-surface-900 border-brand/30"
+    )}>
+      <div className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-[#635BFF]/10 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-[#635BFF]" fill="currentColor">
+                <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.591-7.305z" />
+              </svg>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-sm font-bold text-surface-100">Stripe Connect</h3>
+                {isConnected && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-success/20 text-success uppercase">Active</span>
+                )}
+                {status?.detailsSubmitted && !isConnected && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-400 uppercase">Pending</span>
+                )}
+              </div>
+              <p className="font-body text-xs text-surface-400 mt-0.5">
+                {isConnected
+                  ? `Payments flow through your Stripe account with ${((status?.feePercent || 0.005) * 100).toFixed(1)}% platform fee`
+                  : "Connect your Stripe account to accept payments directly — 0.5% platform fee applies"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isConnected ? (
+              <>
+                <button
+                  onClick={handleDashboard}
+                  disabled={dashboardLink.isPending}
+                  className="px-3 py-1.5 rounded-lg font-body text-xs font-medium bg-surface-800 text-surface-300 hover:text-surface-100 transition-colors"
+                >
+                  {dashboardLink.isPending ? "Opening..." : "Stripe Dashboard"}
+                </button>
+                <button
+                  onClick={() => disconnect.mutate()}
+                  disabled={disconnect.isPending}
+                  className="px-3 py-1.5 rounded-lg font-body text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleOnboard}
+                disabled={onboard.isPending}
+                className="px-4 py-2 rounded-xl font-body text-sm font-medium bg-[#635BFF] text-white hover:bg-[#635BFF]/90 transition-colors disabled:opacity-50"
+              >
+                {onboard.isPending ? "Setting up..." : "Connect with Stripe"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Status details when connected */}
+        {isConnected && (
+          <div className="mt-3 pt-3 border-t border-surface-600/50 grid grid-cols-3 gap-4">
+            <div>
+              <p className="font-body text-[10px] text-surface-500 uppercase tracking-wider">Charges</p>
+              <p className="font-mono text-xs text-emerald-400 mt-0.5">Enabled</p>
+            </div>
+            <div>
+              <p className="font-body text-[10px] text-surface-500 uppercase tracking-wider">Payouts</p>
+              <p className={cn("font-mono text-xs mt-0.5", status?.payoutsEnabled ? "text-emerald-400" : "text-amber-400")}>
+                {status?.payoutsEnabled ? "Enabled" : "Pending"}
+              </p>
+            </div>
+            <div>
+              <p className="font-body text-[10px] text-surface-500 uppercase tracking-wider">Platform Fee</p>
+              <p className="font-mono text-xs text-surface-100 mt-0.5">{((status?.feePercent || 0.005) * 100).toFixed(1)}%</p>
+            </div>
+          </div>
+        )}
+
+        {/* Onboarding incomplete */}
+        {status?.detailsSubmitted && !isConnected && (
+          <div className="mt-3 pt-3 border-t border-surface-600/50">
+            <p className="font-body text-xs text-amber-400">
+              Your account setup is incomplete. Stripe needs additional information before you can accept payments.
+            </p>
+            <button
+              onClick={handleOnboard}
+              disabled={onboard.isPending}
+              className="mt-2 px-3 py-1.5 rounded-lg font-body text-xs font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+            >
+              Complete Setup
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,10 @@ export async function POST(request: NextRequest) {
     return handleStripeWebhook(request);
   }
 
+  if (provider === "stripe-connect") {
+    return handleStripeConnectWebhook(request);
+  }
+
   if (provider === "twilio") {
     return handleTwilioWebhook(request);
   }
@@ -103,6 +107,70 @@ async function handleStripeWebhook(request: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error("Stripe webhook error:", error);
+    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
+  }
+}
+
+// ─── Stripe Connect Webhook ──────────────────────────────
+// Handles events from connected accounts (e.g., account.updated)
+async function handleStripeConnectWebhook(request: NextRequest) {
+  try {
+    const body = await request.text();
+    const signature = request.headers.get("stripe-signature");
+
+    if (!signature) {
+      return NextResponse.json({ error: "No signature" }, { status: 400 });
+    }
+
+    if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_CONNECT_WEBHOOK_SECRET) {
+      return NextResponse.json({ error: "Connect webhook not configured" }, { status: 503 });
+    }
+
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" });
+
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      process.env.STRIPE_CONNECT_WEBHOOK_SECRET
+    );
+
+    switch (event.type) {
+      case "account.updated": {
+        // A connected account's status changed (e.g., completed onboarding)
+        const account = event.data.object as any;
+        const storeId = account.metadata?.storeId;
+
+        if (storeId && account.charges_enabled) {
+          await db.storeIntegration.updateMany({
+            where: { storeId, provider: "stripe-connect" },
+            data: { isActive: true, connectedAt: new Date() },
+          });
+        }
+        break;
+      }
+
+      case "account.application.deauthorized": {
+        // Store owner disconnected from their Stripe Dashboard
+        const account = event.data.object as any;
+        const storeId = account.metadata?.storeId;
+
+        if (storeId) {
+          await db.storeIntegration.updateMany({
+            where: { storeId, provider: "stripe-connect" },
+            data: { isActive: false },
+          });
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (error) {
+    console.error("Stripe Connect webhook error:", error);
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }

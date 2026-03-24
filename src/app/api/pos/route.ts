@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { completeTransaction } from "@/lib/payments";
 import { getUpsellSuggestions } from "@/lib/ai";
 import { getCredentials } from "@/lib/integrations";
+import { getApplicationFee } from "@/lib/services/connect";
 import { db } from "@/lib/db";
 import type { ApiResponse } from "@/types";
 
@@ -40,18 +41,32 @@ export async function POST(request: NextRequest) {
       const Stripe = (await import("stripe")).default;
       const stripe = new Stripe(stripeKey, { apiVersion: "2024-04-10" });
 
-      const paymentIntent = await stripe.paymentIntents.create({
+      // Check if this store has a Stripe Connect account for platform fees
+      const connectFee = await getApplicationFee(storeId, amount);
+
+      const intentParams: Stripe.PaymentIntentCreateParams = {
         amount,
         currency: "usd",
         automatic_payment_methods: { enabled: true },
         metadata: { storeId, cashierId: cashierId || "" },
-      });
+      };
+
+      // If a Connect account is active, route payment through it with an application fee
+      if (connectFee) {
+        intentParams.application_fee_amount = connectFee.feeAmount;
+        intentParams.transfer_data = { destination: connectFee.connectedAccountId };
+        intentParams.metadata!.platformFee = String(connectFee.feeAmount);
+        intentParams.metadata!.connectedAccountId = connectFee.connectedAccountId;
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create(intentParams);
 
       return NextResponse.json({
         success: true,
         data: {
           clientSecret: paymentIntent.client_secret,
           paymentIntentId: paymentIntent.id,
+          platformFee: connectFee?.feeAmount || 0,
         },
       } satisfies ApiResponse);
     }
@@ -100,6 +115,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Extract platform fee info from the PaymentIntent metadata if available
+    let platformFee: number | undefined;
+    let connectedAccountId: string | undefined;
+    if (stripePaymentId) {
+      try {
+        const stripeKey = await getStripeKey(storeId);
+        if (stripeKey) {
+          const Stripe = (await import("stripe")).default;
+          const stripeClient = new Stripe(stripeKey, { apiVersion: "2024-04-10" });
+          const pi = await stripeClient.paymentIntents.retrieve(stripePaymentId);
+          platformFee = pi.metadata?.platformFee ? parseInt(pi.metadata.platformFee, 10) : undefined;
+          connectedAccountId = pi.metadata?.connectedAccountId || undefined;
+        }
+      } catch {
+        // Platform fee tracking is non-critical
+      }
+    }
+
     const transaction = await completeTransaction({
       storeId,
       registerId,
@@ -113,6 +146,8 @@ export async function POST(request: NextRequest) {
       ageVerified,
       verificationMethod,
       tip,
+      platformFee: platformFee ? platformFee / 100 : undefined, // Convert cents to dollars
+      connectedAccountId,
     });
 
     return NextResponse.json({

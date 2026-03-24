@@ -25,6 +25,9 @@ export const SMS_OPT_IN_KEYWORDS = ["start", "subscribe", "join", "yes"];
 export const SMS_RATE_LIMIT_MS = 1100; // 1 msg per second for long codes
 export const SMS_BROADCAST_BATCH_SIZE = 50;
 
+// ─── Stripe Connect ────────────────────────────────────
+export const CONNECT_PLATFORM_FEE_PERCENT = 0.005; // 0.5% platform application fee
+
 // ─── POS Configuration ──────────────────────────────────
 export const POS_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 hours
 export const POS_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
