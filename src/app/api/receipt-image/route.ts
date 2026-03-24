@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir, readFile, unlink } from "fs/promises";
-import path from "path";
 
 export const dynamic = "force-dynamic";
 
-const RECEIPT_DIR = path.join(process.cwd(), ".receipt-images");
+// In-memory store for receipt images (auto-expires after 10 min)
+// Works reliably on Railway/Docker — no filesystem dependency
+const imageStore = new Map<string, { buffer: Buffer; expires: number }>();
 
-// POST — Store a receipt image (base64 PNG), return its ID
+function cleanExpired() {
+  const now = Date.now();
+  for (const [key, val] of imageStore) {
+    if (val.expires < now) imageStore.delete(key);
+  }
+}
+
+// POST — Store a receipt image (base64 PNG), return its public URL
 export async function POST(request: NextRequest) {
   try {
     const { imageBase64 } = await request.json();
@@ -23,16 +30,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Image exceeds 5MB limit" }, { status: 400 });
     }
 
-    await mkdir(RECEIPT_DIR, { recursive: true });
+    // Cleanup expired images periodically
+    cleanExpired();
 
     const id = `rcpt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const filePath = path.join(RECEIPT_DIR, `${id}.png`);
-    await writeFile(filePath, buffer);
-
-    // Auto-cleanup after 10 minutes
-    setTimeout(async () => {
-      try { await unlink(filePath); } catch {}
-    }, 10 * 60 * 1000);
+    imageStore.set(id, { buffer, expires: Date.now() + 10 * 60 * 1000 });
 
     // Build public URL for Twilio to fetch
     const baseUrl = process.env.NEXTAUTH_URL || `https://${request.headers.get("host")}`;
@@ -45,23 +47,23 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET — Serve a stored receipt image by ID
+// GET — Serve a stored receipt image by ID (called by Twilio to fetch MMS media)
 export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get("id");
   if (!id || !/^rcpt_\d+_[a-z0-9]+$/.test(id)) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const filePath = path.join(RECEIPT_DIR, `${id}.png`);
-  try {
-    const buffer = await readFile(filePath);
-    return new NextResponse(buffer, {
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": "public, max-age=600",
-      },
-    });
-  } catch {
+  const entry = imageStore.get(id);
+  if (!entry || entry.expires < Date.now()) {
+    if (entry) imageStore.delete(id);
     return new NextResponse("Not found", { status: 404 });
   }
+
+  return new NextResponse(entry.buffer, {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=600",
+    },
+  });
 }

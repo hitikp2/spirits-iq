@@ -92,27 +92,29 @@ export default function ReceiptModal({
     return lines.join("\n");
   }, [orderNumber, date, time, items, subtotal, tax, total, payLabel]);
 
-  // Open SMS dialog — pre-fill from customer data if available
+  // Open SMS dialog — if customer phone is known, send directly; otherwise show input
   const handleSmsClick = useCallback(() => {
-    if (customerPhone && !smsPhone) setSmsPhone(customerPhone);
-    if (customerName && !smsName) setSmsName(customerName);
-    setShowPhoneInput(true);
+    if (customerPhone) {
+      // Customer already identified — send immediately without showing the input panel
+      if (!smsPhone) setSmsPhone(customerPhone);
+      if (!smsName && customerName) setSmsName(customerName);
+      // Use a microtask so state updates settle before send
+      const phone = smsPhone || customerPhone;
+      const name = smsName || customerName || "";
+      handleSendSmsDirect(phone, name);
+    } else {
+      setShowPhoneInput(true);
+    }
   }, [customerPhone, customerName, smsPhone, smsName]);
 
-  // Send receipt via SMS (text) or MMS (image)
-  const handleSendSms = useCallback(async () => {
-    if (!smsPhone.trim()) {
-      toast.error("Enter a phone number");
-      return;
-    }
-
-    const greeting = smsName.trim() ? `Hi ${smsName.trim()}! ` : "";
+  // Core send logic — accepts phone/name directly to avoid stale closure issues
+  const sendReceipt = useCallback(async (phone: string, name: string) => {
+    const greeting = name.trim() ? `Hi ${name.trim()}! ` : "";
     setSmsSending(true);
     try {
       let mediaUrl: string | undefined;
 
       if (sendAsImage && receiptRef.current) {
-        // Capture receipt DOM as PNG for MMS
         const canvas = await html2canvas(receiptRef.current, {
           backgroundColor: "#1a1a1a",
           scale: 2,
@@ -132,7 +134,6 @@ export default function ReceiptModal({
         }
       }
 
-      // Text: full receipt breakdown. Image: short caption only.
       const message = sendAsImage
         ? greeting + `Here's your receipt for order #${orderNumber}. Total: ${formatCurrency(total)}. Thank you!`
         : greeting + receiptText;
@@ -142,7 +143,7 @@ export default function ReceiptModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "send-direct",
-          phone: smsPhone.trim(),
+          phone: phone.trim(),
           message,
           ...(mediaUrl && { mediaUrl }),
           storeId,
@@ -150,7 +151,7 @@ export default function ReceiptModal({
       });
       const json = await res.json();
       if (json.success) {
-        toast.success(`Receipt sent to ${smsPhone.trim()}`);
+        toast.success(`Receipt sent to ${phone.trim()}`);
         setShowPhoneInput(false);
         setSmsPhone("");
         setSmsName("");
@@ -162,7 +163,21 @@ export default function ReceiptModal({
     } finally {
       setSmsSending(false);
     }
-  }, [smsPhone, smsName, sendAsImage, receiptText, storeId, orderNumber, total]);
+  }, [sendAsImage, receiptText, storeId, orderNumber, total]);
+
+  // Called from the SMS panel send button
+  const handleSendSms = useCallback(() => {
+    if (!smsPhone.trim()) {
+      toast.error("Enter a phone number");
+      return;
+    }
+    sendReceipt(smsPhone, smsName);
+  }, [smsPhone, smsName, sendReceipt]);
+
+  // Called directly when customer phone is known (skips the input panel)
+  const handleSendSmsDirect = useCallback((phone: string, name: string) => {
+    sendReceipt(phone, name);
+  }, [sendReceipt]);
 
   if (!open) return null;
 

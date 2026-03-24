@@ -783,7 +783,7 @@ export default function POSPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-5rem)]">
       {/* ─── Product Grid Area ─── */}
-      <div className="flex-1 flex flex-col min-h-0 px-4 pt-4">
+      <div className="flex-1 flex flex-col min-h-0 px-4 pt-4 pb-32">
         {/* Search bar + Scanner */}
         <div className="flex gap-1.5 mb-3">
           <div className="relative flex-1">
@@ -933,9 +933,13 @@ export default function POSPage() {
       </div>
 
       {/* ─── Cart Bottom Sheet ─── */}
+      {cartExpanded && cart.length > 0 && (
+        <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={() => setCartExpanded(false)} />
+      )}
       <div className={cn(
-        "bg-surface-900 border-t border-surface-700 transition-all",
-        cartExpanded ? "max-h-[60vh]" : "max-h-fit"
+        "fixed bottom-0 inset-x-0 z-50 bg-surface-900 border-t border-surface-700 transition-all rounded-t-[20px]",
+        cartExpanded ? "max-h-[85vh]" : "max-h-fit",
+        cart.length === 0 && "translate-y-full"
       )}>
         {/* Cart header — always visible */}
         <button
@@ -1148,7 +1152,7 @@ export default function POSPage() {
 
         {/* Totals + Charge button — always visible when cart has items */}
         {cart.length > 0 && !saleSuccess && (
-          <div className="px-4 pt-1 space-y-1.5" style={{ paddingBottom: "max(0.75rem, calc(env(safe-area-inset-bottom, 0px) + 4.5rem))" }}>
+          <div className="px-4 pt-1 space-y-1.5" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
             <div className="space-y-0.5">
               <div className="flex justify-between text-[10px] font-body">
                 <span className="text-surface-400">Subtotal</span>
