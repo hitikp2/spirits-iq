@@ -6,6 +6,10 @@ import { useInventory, useProcessSale, useUpsellSuggestion } from "@/hooks/useAp
 import { formatCurrency, cn } from "@/lib/utils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import ScannerModal from "./ScannerModal";
+import CheckoutModal from "./CheckoutModal";
+import ReceiptModal from "./ReceiptModal";
+import { toast } from "sonner";
 
 const TAX_RATE = 0.0975;
 
@@ -356,6 +360,20 @@ export default function POSPage() {
   // Cart expand/collapse (mobile bottom sheet)
   const [cartExpanded, setCartExpanded] = useState(false);
 
+  // Scanner modal
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Checkout modal
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  // Receipt modal
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [lastOrder, setLastOrder] = useState<{
+    items: Array<{ name: string; brand?: string; size?: string; price: number; quantity: number }>;
+    subtotal: number; tax: number; total: number;
+    orderNumber: string; paymentMethod: string;
+  } | null>(null);
+
   const { data: products = [], isLoading } = useInventory(storeId) as {
     data: Product[];
     isLoading: boolean;
@@ -441,8 +459,42 @@ export default function POSPage() {
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
 
+  // Save order data and show receipt after successful sale
+  const completeOrder = useCallback((payMethod: string) => {
+    const orderItems = cart.map((item) => {
+      const product = products.find((p: Product) => p.id === item.productId);
+      return {
+        name: item.name,
+        brand: product?.brand,
+        size: product?.size || undefined,
+        price: item.price,
+        quantity: item.quantity,
+      };
+    });
+    setLastOrder({
+      items: orderItems,
+      subtotal,
+      tax,
+      total,
+      orderNumber: "SIQ-" + (1000 + Math.floor(Math.random() * 9000)),
+      paymentMethod: payMethod,
+    });
+    setCart([]);
+    setCustomerId(undefined);
+    setCustomerName("");
+    setCheckoutOpen(false);
+    setSaleSuccess(true);
+    setTimeout(() => {
+      setSaleSuccess(false);
+      setReceiptOpen(true);
+    }, 800);
+  }, [cart, products, subtotal, tax, total]);
+
+  // Handle charge from checkout modal — defined after payment handlers below
+  // (see handleCheckoutCharge below)
+
   // Cash sale — immediate, no Stripe
-  const handleCashCharge = useCallback(() => {
+  const handleCashChargeInternal = useCallback(() => {
     if (cart.length === 0) return;
     const hasAgeRestricted = cart.some((item) => {
       const product = products.find((p: Product) => p.id === item.productId);
@@ -465,14 +517,11 @@ export default function POSPage() {
       },
       {
         onSuccess: () => {
-          setCart([]);
-          setCustomerId(undefined);
-          setCustomerName("");
-          setSaleSuccess(true);
+          completeOrder("CASH");
         },
       }
     );
-  }, [cart, products, saleMutation, storeId, userId, customerId]);
+  }, [cart, products, saleMutation, storeId, userId, customerId, completeOrder]);
 
   // Card / Apple Pay / Google Pay — open Stripe payment sheet
   const handleCardCharge = useCallback(
@@ -559,15 +608,12 @@ export default function POSPage() {
         },
         {
           onSuccess: () => {
-            setCart([]);
-            setCustomerId(undefined);
-            setCustomerName("");
-            setSaleSuccess(true);
+            completeOrder("NFC");
           },
         }
       );
     },
-    [cart, products, saleMutation, storeId, userId, customerId]
+    [cart, products, saleMutation, storeId, userId, customerId, completeOrder]
   );
 
   // Called after Stripe payment succeeds
@@ -598,15 +644,12 @@ export default function POSPage() {
         },
         {
           onSuccess: () => {
-            setCart([]);
-            setCustomerId(undefined);
-            setCustomerName("");
-            setSaleSuccess(true);
+            completeOrder("CARD");
           },
         }
       );
     },
-    [cart, products, saleMutation, storeId, userId, customerId, paymentMethod]
+    [cart, products, saleMutation, storeId, userId, customerId, paymentMethod, completeOrder]
   );
 
   const handleCustomerLookup = useCallback(async () => {
@@ -661,6 +704,27 @@ export default function POSPage() {
     setLookupLoading(false);
   }, [customerPhone, storeId]);
 
+  // Handle charge from checkout modal — routes to correct payment handler
+  const handleCheckoutCharge = useCallback((method: "CARD" | "CASH" | "NFC") => {
+    setCheckoutOpen(false);
+    if (method === "CASH") {
+      handleCashChargeInternal();
+    } else if (method === "NFC") {
+      handleNfcCharge();
+    } else {
+      handleCardCharge("CARD");
+    }
+  }, [handleCashChargeInternal, handleNfcCharge, handleCardCharge]);
+
+  // Add to cart from scanner
+  const handleScannerAdd = useCallback((productId: string) => {
+    const product = products.find((p: Product) => p.id === productId);
+    if (product) {
+      addToCart(product);
+      toast.success(`${product.name} added to cart`);
+    }
+  }, [products, addToCart]);
+
   useEffect(() => {
     if (!saleSuccess) return;
     const t = setTimeout(() => setSaleSuccess(false), 2500);
@@ -673,23 +737,29 @@ export default function POSPage() {
     <div className="flex flex-col h-[calc(100vh-5rem)]">
       {/* ─── Product Grid Area ─── */}
       <div className="flex-1 flex flex-col min-h-0 px-4 pt-4">
-        {/* Search bar */}
-        <div className="relative mb-3">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 text-base">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-          </span>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search products, brands, SKU..."
-            className="w-full pl-9 pr-12 py-2.5 bg-surface-900 border border-surface-700 rounded-xl text-sm text-surface-100 placeholder:text-surface-500 font-body focus:outline-none focus:border-brand transition-colors"
-          />
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-surface-800 border border-surface-600 rounded text-[10px] text-surface-400 font-mono">
-            ⌘K
-          </kbd>
+        {/* Search bar + Scanner */}
+        <div className="flex gap-1.5 mb-3">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 text-base">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+            </span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search products, brands, SKU..."
+              className="w-full pl-9 pr-4 py-2.5 bg-surface-900 border border-surface-700 rounded-xl text-sm text-surface-100 placeholder:text-surface-500 font-body focus:outline-none focus:border-brand transition-colors"
+            />
+          </div>
+          <button
+            onClick={() => setScannerOpen(true)}
+            className="w-10 h-10 rounded-xl bg-brand/10 border border-brand/20 text-brand flex items-center justify-center text-lg flex-shrink-0 active:bg-brand active:text-surface-950 active:scale-[0.92] transition-all"
+            title="Scan Barcode"
+          >
+            📷
+          </button>
         </div>
 
         {/* Category filter chips */}
@@ -733,7 +803,7 @@ export default function POSPage() {
               No products found
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
               {filteredProducts.map((product: Product) => {
                 const outOfStock = product.quantity <= 0;
                 const inCart = cart.find((i) => i.productId === product.id);
@@ -741,50 +811,60 @@ export default function POSPage() {
                 return (
                   <div
                     key={product.id}
+                    onClick={() => !outOfStock && addToCart(product)}
                     className={cn(
-                      "relative flex flex-col p-3 rounded-2xl border transition-all",
+                      "relative flex flex-col p-2.5 rounded-xl border transition-all cursor-pointer gap-1 animate-fade-in",
                       outOfStock
-                        ? "bg-surface-950 border-surface-800 opacity-40"
+                        ? "bg-surface-950 border-surface-800 opacity-40 cursor-not-allowed"
                         : inCart
-                        ? "bg-surface-900 border-brand border-2 shadow-[0_0_12px_rgba(245,166,35,0.15)]"
-                        : "bg-surface-900 border-surface-700 hover:border-surface-500"
+                        ? "bg-surface-900 border-brand shadow-[0_0_0_1px_var(--tw-shadow-color),0_0_12px_rgba(245,166,35,0.15)] shadow-brand active:scale-[0.97]"
+                        : "bg-surface-900 border-surface-700 hover:border-surface-500 active:scale-[0.97] active:border-brand"
                     )}
                   >
-                    {/* Stock badge */}
-                    <span
-                      className={cn(
-                        "absolute top-2 right-2 min-w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold font-mono px-1",
-                        outOfStock
-                          ? "bg-danger/20 text-danger"
-                          : lowStock
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-emerald-500/20 text-emerald-400"
-                      )}
-                    >
-                      {outOfStock ? "0" : product.quantity}
-                    </span>
+                    {/* Cart quantity badge */}
+                    {inCart && (
+                      <span className="absolute -top-1 -right-1 w-[18px] h-[18px] rounded-full bg-brand text-surface-950 text-[9px] font-bold flex items-center justify-center shadow-md font-mono z-10">
+                        {inCart.quantity}
+                      </span>
+                    )}
 
-                    {/* Product info */}
-                    <span className="font-display text-sm font-bold text-surface-100 leading-tight line-clamp-2 pr-7">
-                      {product.name}
-                    </span>
-                    <span className="text-[11px] text-surface-400 font-body mt-1 truncate">
+                    {/* Top: name + stock */}
+                    <div className="flex justify-between items-start">
+                      <span className="font-display text-xs font-bold text-surface-100 leading-tight line-clamp-2 pr-5">
+                        {product.name}
+                      </span>
+                      <span
+                        className={cn(
+                          "text-[9px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ml-1 font-mono",
+                          outOfStock
+                            ? "bg-danger/20 text-danger"
+                            : lowStock
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-emerald-500/10 text-emerald-400"
+                        )}
+                      >
+                        {outOfStock ? "0" : product.quantity}
+                      </span>
+                    </div>
+
+                    {/* Meta */}
+                    <span className="text-[10px] text-surface-400 font-body truncate leading-tight">
                       {product.brand}{product.size ? ` · ${product.size}` : ""}
                     </span>
 
                     {/* Price + Add button */}
-                    <div className="mt-auto pt-2.5 flex items-end justify-between">
-                      <span className="font-mono text-sm font-bold text-brand leading-none">
+                    <div className="mt-auto pt-1.5 flex items-end justify-between">
+                      <span className="font-mono text-base font-bold text-brand leading-none">
                         {formatCurrency(product.retailPrice)}
                       </span>
                       <button
-                        onClick={() => addToCart(product)}
+                        onClick={(e) => { e.stopPropagation(); if (!outOfStock) addToCart(product); }}
                         disabled={outOfStock}
                         className={cn(
-                          "w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold transition-all",
+                          "w-[26px] h-[26px] rounded-lg flex items-center justify-center text-[15px] font-semibold transition-all",
                           outOfStock
                             ? "bg-surface-800 text-surface-600 cursor-not-allowed"
-                            : "bg-surface-700 text-surface-200 hover:bg-brand hover:text-surface-950 active:scale-90"
+                            : "bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-surface-950 active:scale-[0.85]"
                         )}
                       >
                         +
@@ -825,6 +905,27 @@ export default function POSPage() {
             </span>
           )}
         </button>
+
+        {/* Customer toggle — visible when cart has items */}
+        {cart.length > 0 && (
+          <div className="px-4 pb-1.5">
+            {customerId ? (
+              <button
+                onClick={() => { setCustomerId(undefined); setCustomerName(""); setCustomerPhone(""); setLookupResult(null); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success/10 border border-success/15 text-success text-[10px] font-semibold transition-all active:scale-95"
+              >
+                ✓ {customerName} ({lookupResult?.loyaltyPoints?.toLocaleString() || "0"} pts)
+              </button>
+            ) : (
+              <button
+                onClick={() => setCustomerLookupOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-info/10 border border-info/12 text-info text-[10px] font-semibold transition-all active:scale-95"
+              >
+                👤 Add Customer
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Expanded cart content */}
         {cartExpanded && cart.length > 0 && (
@@ -993,17 +1094,17 @@ export default function POSPage() {
 
         {/* Totals + Charge button — always visible when cart has items */}
         {cart.length > 0 && !saleSuccess && (
-          <div className="px-4 pb-3 pt-1 space-y-2">
+          <div className="px-4 pb-3 pt-1 space-y-1.5">
             <div className="space-y-0.5">
-              <div className="flex justify-between text-xs font-body">
+              <div className="flex justify-between text-[10px] font-body">
                 <span className="text-surface-400">Subtotal</span>
                 <span className="text-surface-300 font-mono">{formatCurrency(subtotal)}</span>
               </div>
-              <div className="flex justify-between text-xs font-body">
+              <div className="flex justify-between text-[10px] font-body">
                 <span className="text-surface-400">Tax (9.75%)</span>
                 <span className="text-surface-300 font-mono">{formatCurrency(tax)}</span>
               </div>
-              <div className="flex justify-between text-base font-display font-bold pt-1">
+              <div className="flex justify-between text-[15px] font-display font-bold pt-1">
                 <span className="text-surface-100">Total</span>
                 <span className="text-brand font-mono">{formatCurrency(total)}</span>
               </div>
@@ -1015,87 +1116,19 @@ export default function POSPage() {
               </p>
             )}
 
-            {/* Primary charge button */}
+            {/* Checkout button — opens modal */}
             <button
-              onClick={() => handleCardCharge("CARD")}
+              onClick={() => setCheckoutOpen(true)}
               disabled={cart.length === 0 || saleMutation.isPending}
               className={cn(
-                "w-full py-3.5 rounded-xl font-display font-bold text-sm transition-all flex items-center justify-center gap-2",
+                "w-full h-[42px] rounded-xl font-display font-bold text-sm transition-all flex items-center justify-center gap-2 tracking-wide",
                 cart.length === 0
                   ? "bg-surface-800 text-surface-500 cursor-not-allowed"
-                  : "bg-brand text-surface-950 hover:brightness-110 active:scale-[0.98] shadow-lg shadow-brand/20"
+                  : "bg-brand text-surface-950 hover:brightness-110 active:scale-[0.97] active:brightness-90"
               )}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-              </svg>
-              {saleMutation.isPending ? "Processing..." : `Charge ${formatCurrency(total)}`}
+              💳 {saleMutation.isPending ? "Processing..." : `Charge ${formatCurrency(total)}`}
             </button>
-
-            {/* Secondary payment options */}
-            <div className="flex gap-2">
-              <button
-                onClick={handleCashCharge}
-                disabled={cart.length === 0 || saleMutation.isPending}
-                className={cn(
-                  "flex-1 py-2 rounded-xl font-display font-semibold text-xs transition-all",
-                  cart.length === 0
-                    ? "bg-surface-800 text-surface-500 cursor-not-allowed"
-                    : "bg-surface-800 text-surface-300 hover:bg-surface-700 active:scale-[0.98]"
-                )}
-              >
-                Cash
-              </button>
-              <button
-                onClick={handleNfcCharge}
-                disabled={cart.length === 0 || saleMutation.isPending}
-                className={cn(
-                  "flex-1 py-2 rounded-xl font-display font-semibold text-xs transition-all flex items-center justify-center gap-1",
-                  cart.length === 0
-                    ? "bg-surface-800 text-surface-500 cursor-not-allowed"
-                    : "bg-surface-800 text-surface-300 hover:bg-surface-700 active:scale-[0.98]"
-                )}
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
-                  <circle cx="12" cy="18" r="1.5" fill="currentColor" />
-                </svg>
-                NFC
-              </button>
-              <button
-                onClick={() => handleCardCharge("APPLE_PAY")}
-                disabled={cart.length === 0 || saleMutation.isPending}
-                className={cn(
-                  "flex-1 py-2 rounded-xl font-display font-semibold text-xs transition-all",
-                  cart.length === 0
-                    ? "bg-surface-800 text-surface-500 cursor-not-allowed"
-                    : "bg-surface-800 text-surface-300 hover:bg-surface-700 active:scale-[0.98]"
-                )}
-              >
-                Apple Pay
-              </button>
-              <button
-                onClick={() => handleCardCharge("GOOGLE_PAY")}
-                disabled={cart.length === 0 || saleMutation.isPending}
-                className={cn(
-                  "flex-1 py-2 rounded-xl font-display font-semibold text-xs transition-all",
-                  cart.length === 0
-                    ? "bg-surface-800 text-surface-500 cursor-not-allowed"
-                    : "bg-surface-800 text-surface-300 hover:bg-surface-700 active:scale-[0.98]"
-                )}
-              >
-                Google Pay
-              </button>
-            </div>
-
-            {cart.length > 0 && (
-              <button
-                onClick={() => setCart([])}
-                className="w-full py-1 text-[10px] text-surface-500 hover:text-danger font-body transition-colors"
-              >
-                Clear Cart
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -1163,6 +1196,55 @@ export default function POSPage() {
             setNfcModal(false);
             setPaymentError("");
           }}
+        />
+      )}
+
+      {/* ─── Barcode Scanner Modal ─── */}
+      <ScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onAddToCart={handleScannerAdd}
+        products={products as any}
+      />
+
+      {/* ─── Checkout Modal ─── */}
+      <CheckoutModal
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        items={cart.map((item) => {
+          const product = products.find((p: Product) => p.id === item.productId);
+          return {
+            productId: item.productId,
+            name: item.name,
+            brand: product?.brand,
+            size: product?.size || undefined,
+            price: item.price,
+            quantity: item.quantity,
+          };
+        })}
+        subtotal={subtotal}
+        tax={tax}
+        total={total}
+        customerName={customerName || undefined}
+        onCharge={handleCheckoutCharge}
+        processing={saleMutation.isPending}
+      />
+
+      {/* ─── Receipt Modal ─── */}
+      {lastOrder && (
+        <ReceiptModal
+          open={receiptOpen}
+          onClose={() => { setReceiptOpen(false); setLastOrder(null); }}
+          items={lastOrder.items}
+          subtotal={lastOrder.subtotal}
+          tax={lastOrder.tax}
+          total={lastOrder.total}
+          orderNumber={lastOrder.orderNumber}
+          paymentMethod={lastOrder.paymentMethod}
+          cashierName={(session?.user as any)?.name || "Cashier"}
+          customerName={customerName || undefined}
+          onSendSms={() => toast.success("Receipt sent via SMS")}
+          onSendEmail={() => toast.success("Receipt sent via email")}
         />
       )}
     </div>
