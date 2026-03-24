@@ -877,13 +877,6 @@ export default function POSPage() {
                       </span>
                     )}
 
-                    {/* 21+ age restriction badge */}
-                    {product.isAgeRestricted && (
-                      <span className="absolute top-1.5 left-1.5 px-1 py-0.5 rounded bg-danger/20 text-danger text-[8px] font-bold tracking-wide z-10">
-                        21+
-                      </span>
-                    )}
-
                     {/* Top: name + stock */}
                     <div className="flex justify-between items-start">
                       <span className="font-display text-xs font-bold text-surface-100 leading-tight line-clamp-2 pr-5">
