@@ -531,13 +531,21 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
             <div className="overflow-y-auto px-5 pb-4 space-y-3 flex-1 min-h-0">
 
               {/* Photo preview + retake */}
-              {photoBase64 ? (
+              {(quickForm.imageUrl || photoBase64) ? (
                 <div className="relative rounded-xl overflow-hidden bg-surface-800">
                   <img
-                    src={photoBase64}
+                    src={quickForm.imageUrl || photoBase64!}
                     alt="Product"
-                    className="w-full h-32 object-cover"
+                    className={cn(
+                      "w-full h-32",
+                      quickForm.imageUrl ? "object-contain bg-white" : "object-cover"
+                    )}
                   />
+                  {quickForm.imageUrl && (
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-success/80 backdrop-blur">
+                      <span className="text-[9px] font-semibold text-white">AI Enhanced</span>
+                    </div>
+                  )}
                   {identifying && (
                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center gap-2">
                       <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin" />

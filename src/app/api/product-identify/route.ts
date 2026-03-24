@@ -59,56 +59,74 @@ async function generateCleanProductImage(base64Data: string): Promise<string | n
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: "image/jpeg",
-                    data: base64Data,
+  // Try models in order of preference for image generation
+  const models = [
+    "gemini-2.5-flash-preview-image-generation",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-preview-image-generation",
+    "gemini-2.0-flash",
+  ];
+
+  for (const model of models) {
+    try {
+      console.log(`Trying image generation with model: ${model}`);
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "image/jpeg",
+                      data: base64Data,
+                    },
                   },
-                },
-                {
-                  text: "Edit this product photo: remove the background completely and replace it with a clean, plain white background (#FFFFFF). Keep the product exactly as-is — do not change, distort, or reimagine the product itself. Center the product in the frame with even padding. The result should look like a professional e-commerce product listing thumbnail. Output only the edited image.",
-                },
-              ],
+                  {
+                    text: "Edit this product photo: remove the background completely and replace it with a clean, plain white background (#FFFFFF). Keep the product exactly as-is — do not change, distort, or reimagine the product itself. Center the product in the frame with even padding. The result should look like a professional e-commerce product listing thumbnail. Output only the edited image.",
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              response_modalities: ["IMAGE", "TEXT"],
+              max_output_tokens: 4096,
             },
-          ],
-          generationConfig: {
-            responseModalities: ["IMAGE", "TEXT"],
-            maxOutputTokens: 4096,
-          },
-        }),
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Gemini image gen (${model}) failed:`, res.status, errText);
+        continue; // Try next model
       }
-    );
 
-    if (!res.ok) {
-      console.error("Gemini image generation failed:", res.status, await res.text());
-      return null;
-    }
-
-    const data = await res.json();
-    const candidates = data.candidates;
-    if (!candidates?.[0]?.content?.parts) return null;
-
-    // Find the image part in the response
-    for (const part of candidates[0].content.parts) {
-      if (part.inlineData?.data) {
-        return part.inlineData.data; // base64 image data
+      const data = await res.json();
+      const candidates = data.candidates;
+      if (!candidates?.[0]?.content?.parts) {
+        console.error(`Gemini image gen (${model}): no parts in response`);
+        continue;
       }
+
+      // Find the image part in the response
+      for (const part of candidates[0].content.parts) {
+        if (part.inlineData?.data) {
+          console.log(`AI image generated successfully with model: ${model}`);
+          return part.inlineData.data; // base64 image data
+        }
+      }
+      console.error(`Gemini image gen (${model}): no image in response parts`);
+    } catch (error) {
+      console.error(`Gemini image gen (${model}) error:`, error);
     }
-    return null;
-  } catch (error) {
-    console.error("Gemini image generation error:", error);
-    return null;
   }
+
+  console.error("All image generation models failed");
+  return null;
 }
 
 // POST /api/product-identify — AI-powered product identification from photo
