@@ -366,7 +366,7 @@ All items resolved. Prisma field bug fixed, inventory filter aligned, settings m
 | `sendAsImage` defaulted to `false` | **FIXED** | Changed to `true` — users expect image by default |
 | Known-customer auto-send skipped toggle | **FIXED** | Now defaults ON, so auto-send uses image mode |
 | Silent fallback to text on upload failure | **FIXED** | Added toast warning when image upload fails |
-| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` not set in Railway | **CHECK REQUIRED** | Without these env vars, upload returns 503 and silently falls back to text. Verify these are set in Railway dashboard |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` env vars | **CONFIRMED SET** | Supabase Storage upload + Twilio MMS delivery working in production (verified 2026-03-24) |
 | Supabase `receipts` bucket not created | Auto-handled | `/api/receipt-image` auto-creates public bucket on first upload |
 | Twilio MMS requires publicly accessible URL | OK | Supabase Storage public bucket URLs are accessible |
 

@@ -122,8 +122,8 @@ export default function ReceiptModal({
         }
       }
 
-      const message = sendAsImage
-        ? greeting + `Here's your receipt for order #${orderNumber}. Total: ${formatCurrency(total)}. Thank you!`
+      const message = (sendAsImage && mediaUrl)
+        ? `${greeting}Receipt #${orderNumber} — ${formatCurrency(total)}`
         : greeting + receiptText;
 
       const res = await fetch("/api/sms", {
