@@ -1,0 +1,698 @@
+# Advanced POS Features — Claude Code Implementation Guide
+
+## Prerequisites
+
+Complete the POS Redesign Guide (POS-IMPLEMENTATION-GUIDE.md) first. This guide adds three features on top of that work.
+
+Visual prototype: `spirits-advanced-features.html` — open to see exact UX flows.
+
+-----
+
+## Feature 1: Age Verification Gate
+
+### What It Does
+
+When any product in the cart has `isAgeRestricted: true`, a mandatory verification modal appears at checkout. The cashier must verify the customer is 21+ before the sale can proceed. The verification method and result are logged on the transaction.
+
+### The `isAgeRestricted` Field
+
+This already exists on the Product model in `prisma/schema.prisma`. The current POS page already checks for it:
+
+```ts
+// Already in src/app/(app)/pos/page.tsx:
+const hasAgeRestricted = cart.some((item) => {
+  const product = products.find((p: Product) => p.id === item.productId);
+  return product?.isAgeRestricted;
+});
+```
+
+The `completeTransaction()` in `src/lib/payments/index.ts` already accepts `ageVerified` and `verificationMethod` params and stores them on the transaction.
+
+### What Needs Building
+
+**Create:** `src/components/pos/AgeVerificationModal.tsx`
+
+```tsx
+interface AgeVerificationModalProps {
+  open: boolean;
+  onVerified: (method: string, detail: string) => void;
+  onDenied: () => void;
+  restrictedItems: Array<{ name: string; id: string }>;
+}
+```
+
+**Three verification methods:**
+
+1. **ID Scan** (recommended)
+- Uses device camera to scan barcode on driver’s license/passport
+- For MVP: simulate scan with a 1.5s delay, show parsed DOB
+- For production: use `pdf417-decoder` npm package for driver’s license barcodes — PDF417 barcodes on US licenses contain DOB in AAMVA format
+- Hardware: IDVisor Smart Plus scanner (listed in README) sends parsed data via USB HID keyboard input
+- After scan: auto-calculate age from DOB, pass/fail at 21
+1. **Manual DOB Entry**
+- Three input fields: MM / DD / YYYY
+- Auto-validate when all fields filled
+- Calculate age: `Math.floor((Date.now() - dob) / (365.25 * 24 * 60 * 60 * 1000))`
+- Show pass (green) or fail (red) result
+1. **Visual Confirmation** (fallback only)
+- Cashier taps “Looks 21+” or “Under 21”
+- Log as `verificationMethod: "VISUAL"` — least secure
+- Store policy: may require manager override for visual-only
+
+**Integration into checkout flow:**
+
+In `CheckoutModal.tsx` (or the checkout handler), insert the age gate BEFORE payment processing:
+
+```
+Cart has age-restricted items?
+  → YES → Show AgeVerificationModal
+    → Verified → Continue to payment
+    → Denied → Block sale, show "Sale cannot be completed" message
+  → NO → Continue to payment directly
+```
+
+**Data logged per transaction:**
+
+```ts
+// Already supported in completeTransaction():
+{
+  ageVerified: true,
+  verificationMethod: "ID_SCAN" | "MANUAL_DOB" | "VISUAL",
+  // These are stored on the Transaction model
+}
+```
+
+**Optional enhancement — add to Transaction model if not present:**
+
+```prisma
+model Transaction {
+  // ... existing fields
+  verifiedAt        DateTime?
+  verifierNotes     String?     // e.g. "DL #D12345678, CA"
+}
+```
+
+### Key UX Rules
+
+- Modal CANNOT be dismissed — only “Verified” or “Denied” buttons close it
+- If denied, cart is preserved but sale is blocked until the restricted items are removed
+- A product badge “21+” should appear on age-restricted product cards in the grid
+- The receipt should show “Age Verified: Yes” if applicable
+
+-----
+
+## Feature 2: Split Payment
+
+### What It Does
+
+Allows a single transaction total to be paid across 2–4 payment methods. For example: $250 on a Visa, $165 in cash. Each payment method is processed independently, but they all belong to one transaction.
+
+### Database Changes
+
+**Add to `prisma/schema.prisma`:**
+
+```prisma
+model TransactionPayment {
+  id              String   @id @default(cuid())
+  transactionId   String
+  transaction     Transaction @relation(fields: [transactionId], references: [id])
+  paymentMethod   PaymentMethod  // CASH, CARD, NFC, APPLE_PAY, GOOGLE_PAY
+  amount          Decimal  @db.Decimal(10, 2)
+  stripePaymentId String?
+  cardLast4       String?
+  cardBrand       String?
+  status          String   @default("COMPLETED")  // COMPLETED, FAILED, PENDING
+  createdAt       DateTime @default(now())
+}
+
+// Add relation to Transaction model:
+model Transaction {
+  // ... existing fields
+  payments    TransactionPayment[]
+}
+```
+
+Run `npx prisma db push` after.
+
+### What Needs Building
+
+**Create:** `src/components/pos/SplitPaymentModal.tsx`
+
+```tsx
+interface SplitPaymentModalProps {
+  open: boolean;
+  onClose: () => void;
+  total: number;
+  onComplete: (payments: PaymentSplit[]) => void;
+  storeId: string;
+}
+
+interface PaymentSplit {
+  method: "CASH" | "CARD" | "NFC" | "APPLE_PAY";
+  amount: number;
+  stripePaymentId?: string;
+  cardLast4?: string;
+  cardBrand?: string;
+}
+```
+
+**UI Structure:**
+
+1. **Total display** — large amber total at top
+1. **Visual bar** — colored segments showing proportion per method
+1. **Payment method rows** — each row has:
+- Color indicator (matches bar segment)
+- Method icon + label (💳 Visa ****4242, 💵 Cash, etc.)
+- Editable amount input (monospace, right-aligned)
+- Remove button (X) — except the last remaining method
+1. **Add method button** — max 4 methods
+1. **Remaining indicator** — shows green “Balanced” when amounts sum to total, red when over/under
+1. **Process button** — disabled until balanced
+
+**Processing logic (sequential):**
+
+```ts
+async function processSplitPayment(splits: PaymentSplit[], total: number) {
+  const results: PaymentSplit[] = [];
+  
+  for (const split of splits) {
+    if (split.method === "CASH") {
+      // Cash doesn't need Stripe — just record it
+      results.push({ ...split, status: "COMPLETED" });
+    } else {
+      // Card/NFC — create a PaymentIntent for this specific amount
+      const amountCents = Math.round(split.amount * 100);
+      const res = await fetch("/api/pos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          action: "create-intent", 
+          amount: amountCents, 
+          storeId,
+          metadata: { splitPayment: "true", splitIndex: results.length.toString() }
+        }),
+      });
+      // ... process Stripe payment for this split
+      results.push({ ...split, stripePaymentId: pi.id, status: "COMPLETED" });
+    }
+  }
+  
+  return results;
+}
+```
+
+**Modify `completeTransaction()` in `src/lib/payments/index.ts`:**
+
+Add support for a `payments` array parameter:
+
+```ts
+export async function completeTransaction(params: {
+  // ... existing params
+  payments?: Array<{
+    paymentMethod: string;
+    amount: number;
+    stripePaymentId?: string;
+    cardLast4?: string;
+    cardBrand?: string;
+  }>;
+}) {
+  // If payments array exists, create TransactionPayment records
+  // instead of a single paymentMethod on the transaction
+  if (params.payments?.length) {
+    for (const payment of params.payments) {
+      await tx.transactionPayment.create({
+        data: {
+          transactionId: txn.id,
+          paymentMethod: payment.paymentMethod as any,
+          amount: payment.amount,
+          stripePaymentId: payment.stripePaymentId || null,
+          cardLast4: payment.cardLast4 || null,
+          cardBrand: payment.cardBrand || null,
+        },
+      });
+    }
+    // Set primary payment method as "SPLIT" on the transaction
+    await tx.transaction.update({
+      where: { id: txn.id },
+      data: { paymentMethod: "SPLIT" },
+    });
+  }
+}
+```
+
+**Add `SPLIT` to the PaymentMethod enum** in `prisma/schema.prisma`:
+
+```prisma
+enum PaymentMethod {
+  CASH
+  CARD
+  NFC
+  APPLE_PAY
+  GOOGLE_PAY
+  SPLIT        // <-- add this
+}
+```
+
+**Integration in CheckoutModal:**
+
+Add a “Split Payment” button that opens SplitPaymentModal instead of processing a single charge.
+
+**Receipt display:** Show each split on the receipt:
+
+```
+Payment 1: Visa ****4242   $248.89
+Payment 2: Cash            $165.92
+```
+
+### Key UX Rules
+
+- Minimum 2 methods, maximum 4
+- Amounts must sum to exactly the total (within $0.01 tolerance)
+- If one card payment fails, already-completed payments are NOT automatically refunded — show error and let cashier retry or switch to cash for the remaining amount
+- Process payments sequentially, not in parallel (show progress indicator)
+
+-----
+
+## Feature 3: Offline Mode
+
+### What It Does
+
+When the internet connection drops, the POS continues to operate for cash-only sales using locally cached data. Transactions queue up and auto-sync when the connection is restored.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────┐
+│       SERVICE WORKER            │
+│  Caches: app shell, fonts,     │
+│  static assets                  │
+├─────────────────────────────────┤
+│       INDEXEDDB                 │
+│  Tables:                        │
+│  - products (full catalog)     │
+│  - customers (phone + name)    │
+│  - categories                   │
+│  - storeConfig (tax rate, etc) │
+│  - syncQueue (pending txns)    │
+│  - localInventory (stock delta)│
+└─────────────────────────────────┘
+```
+
+### What Needs Building
+
+#### Step 1: Service Worker
+
+**Create:** `public/sw.js`
+
+```js
+const CACHE_NAME = 'spirits-iq-v1';
+const STATIC_ASSETS = [
+  '/',
+  '/pos',
+  // Add key static assets
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  // Network-first for API calls, cache-first for static assets
+  if (event.request.url.includes('/api/')) {
+    event.respondWith(
+      fetch(event.request)
+        .catch(() => caches.match(event.request))
+    );
+  } else {
+    event.respondWith(
+      caches.match(event.request)
+        .then(cached => cached || fetch(event.request))
+    );
+  }
+});
+```
+
+**Register in:** `src/app/layout.tsx` or `src/app/providers.tsx`
+
+```tsx
+useEffect(() => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+}, []);
+```
+
+#### Step 2: IndexedDB Data Layer
+
+**Create:** `src/lib/offline/db.ts`
+
+Use the `idb` npm package (lightweight IndexedDB wrapper):
+
+```bash
+npm install idb
+```
+
+```ts
+import { openDB, DBSchema } from 'idb';
+
+interface SpiritsDB extends DBSchema {
+  products: {
+    key: string;
+    value: {
+      id: string;
+      name: string;
+      brand: string;
+      retailPrice: number;
+      quantity: number; // local copy, decremented offline
+      categoryId: string;
+      category: { name: string; icon: string };
+      sku: string;
+      upc?: string;
+      isAgeRestricted: boolean;
+      size?: string;
+    };
+    indexes: { 'by-category': string; 'by-sku': string };
+  };
+  customers: {
+    key: string;
+    value: { id: string; firstName: string; lastName: string; phone: string; loyaltyTier: string; totalPoints: number };
+    indexes: { 'by-phone': string };
+  };
+  syncQueue: {
+    key: number;
+    value: {
+      id?: number;
+      type: 'TRANSACTION' | 'STOCK_ADJUST' | 'CUSTOMER_UPDATE';
+      data: any;
+      status: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED';
+      createdAt: string;
+      attempts: number;
+    };
+  };
+  storeConfig: {
+    key: string;
+    value: any;
+  };
+}
+
+export async function getOfflineDB() {
+  return openDB<SpiritsDB>('spirits-iq', 1, {
+    upgrade(db) {
+      const productStore = db.createObjectStore('products', { keyPath: 'id' });
+      productStore.createIndex('by-category', 'categoryId');
+      productStore.createIndex('by-sku', 'sku');
+
+      const customerStore = db.createObjectStore('customers', { keyPath: 'id' });
+      customerStore.createIndex('by-phone', 'phone');
+
+      db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('storeConfig', { keyPath: 'key' });
+    },
+  });
+}
+```
+
+#### Step 3: Data Sync Service
+
+**Create:** `src/lib/offline/sync.ts`
+
+```ts
+import { getOfflineDB } from './db';
+
+// Cache products from API to IndexedDB
+export async function cacheProducts(products: Product[]) {
+  const db = await getOfflineDB();
+  const tx = db.transaction('products', 'readwrite');
+  for (const product of products) {
+    await tx.store.put(product);
+  }
+  await tx.done;
+}
+
+// Get products from IndexedDB (for offline use)
+export async function getOfflineProducts() {
+  const db = await getOfflineDB();
+  return db.getAll('products');
+}
+
+// Queue a transaction for later sync
+export async function queueTransaction(transactionData: any) {
+  const db = await getOfflineDB();
+  await db.add('syncQueue', {
+    type: 'TRANSACTION',
+    data: transactionData,
+    status: 'PENDING',
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+  });
+}
+
+// Decrement local inventory
+export async function decrementLocalStock(productId: string, qty: number) {
+  const db = await getOfflineDB();
+  const product = await db.get('products', productId);
+  if (product) {
+    product.quantity = Math.max(0, product.quantity - qty);
+    await db.put('products', product);
+  }
+}
+
+// Sync all pending items when back online
+export async function syncPendingQueue() {
+  const db = await getOfflineDB();
+  const pending = await db.getAll('syncQueue');
+  const toSync = pending.filter(item => item.status === 'PENDING');
+
+  for (const item of toSync) {
+    try {
+      item.status = 'SYNCING';
+      item.attempts += 1;
+      await db.put('syncQueue', item);
+
+      // POST to server
+      const res = await fetch('/api/pos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item.data),
+      });
+
+      if (res.ok) {
+        item.status = 'SYNCED';
+      } else {
+        item.status = item.attempts >= 3 ? 'FAILED' : 'PENDING';
+      }
+      await db.put('syncQueue', item);
+    } catch {
+      item.status = 'PENDING';
+      await db.put('syncQueue', item);
+      break; // Stop syncing if network failed again
+    }
+  }
+
+  return toSync.length;
+}
+```
+
+#### Step 4: Offline-Aware Hook
+
+**Create:** `src/hooks/useOffline.ts`
+
+```ts
+import { useState, useEffect, useCallback } from 'react';
+import { cacheProducts, getOfflineProducts, syncPendingQueue } from '@/lib/offline/sync';
+
+export function useOfflineStatus() {
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Auto-sync when coming back online
+      handleSync();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    // Check initial state
+    setIsOnline(navigator.onLine);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const synced = await syncPendingQueue();
+      setPendingCount(prev => Math.max(0, prev - synced));
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
+  return { isOnline, pendingCount, syncing, sync: handleSync, setPendingCount };
+}
+```
+
+#### Step 5: Integrate into POS Page
+
+Modify `src/app/(app)/pos/page.tsx`:
+
+```tsx
+const { isOnline, pendingCount, syncing, sync } = useOfflineStatus();
+
+// Use offline data when not connected:
+const products = isOnline 
+  ? serverProducts     // from useInventory() React Query hook
+  : offlineProducts;   // from IndexedDB
+
+// When processing a sale offline:
+async function handleOfflineSale() {
+  // Queue transaction to IndexedDB
+  await queueTransaction({
+    storeId,
+    cashierId: userId,
+    items: cart.map(i => ({ ... })),
+    paymentMethod: 'CASH',  // Only cash works offline
+    offlineCreatedAt: new Date().toISOString(),
+  });
+  
+  // Decrement local inventory
+  for (const item of cart) {
+    await decrementLocalStock(item.productId, item.quantity);
+  }
+  
+  // Clear cart, show success
+  setCart([]);
+  showToast('Sale recorded offline — will sync when online');
+}
+```
+
+**Show offline banner in header:**
+
+```tsx
+{!isOnline && (
+  <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 flex items-center gap-2">
+    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+    <span className="text-xs font-semibold text-red-400">
+      Offline — Cash only · {pendingCount} pending
+    </span>
+    {pendingCount > 0 && isOnline && (
+      <button onClick={sync} className="ml-auto text-xs text-amber-400 font-bold">
+        {syncing ? 'Syncing...' : 'Sync Now'}
+      </button>
+    )}
+  </div>
+)}
+```
+
+**Disable card/NFC buttons when offline:**
+
+```tsx
+<button
+  disabled={!isOnline}
+  className={cn(!isOnline && "opacity-40 cursor-not-allowed")}
+  title={!isOnline ? "Card payments require internet" : undefined}
+>
+  💳 Card
+</button>
+```
+
+#### Step 6: Cache on Successful API Load
+
+In `useInventory` or the POS page, cache data whenever it loads:
+
+```ts
+const { data: serverProducts } = useInventory(storeId);
+
+useEffect(() => {
+  if (serverProducts?.length) {
+    cacheProducts(serverProducts);  // Save to IndexedDB
+  }
+}, [serverProducts]);
+```
+
+### Key UX Rules
+
+- Show a persistent offline banner with pending transaction count
+- Only allow CASH payments offline — card/NFC buttons disabled with tooltip
+- Auto-sync when connection is restored (via `navigator.onLine` event)
+- Show sync progress indicator (e.g. “Syncing 3/5…”)
+- If sync fails 3 times, mark as FAILED and alert the manager
+- Barcode scanning works offline (local product lookup via IndexedDB)
+- Receipt printing works offline (local printer, no server needed)
+- ID scanning for age verification does NOT work offline (use manual DOB or visual)
+
+### Offline Limitations (Display to User)
+
+- ❌ Card/NFC payments
+- ❌ AI upsell suggestions
+- ❌ SMS sending
+- ❌ Loyalty point redemption
+- ❌ Real-time stock from other registers
+- ✅ Cash sales
+- ✅ Barcode scanning
+- ✅ Product search (cached)
+- ✅ Customer lookup (cached)
+- ✅ Receipt printing (local)
+- ✅ Age verification (manual/visual)
+
+-----
+
+## Execution Order
+
+1. **Age Verification** — Mostly UI, data already flows through
+1. **Split Payment** — Needs DB schema change + new processing logic
+1. **Offline Mode** — Biggest lift, add last
+
+For each feature, tell Claude Code:
+
+```bash
+claude
+> Read ADVANCED-FEATURES-GUIDE.md, start with Feature 1 (Age Verification).
+> The visual prototype is in spirits-advanced-features.html.
+> Follow the integration points exactly — the existing completeTransaction() 
+> already accepts ageVerified and verificationMethod params.
+```
+
+-----
+
+## File Summary
+
+### New Files
+
+```
+src/components/pos/AgeVerificationModal.tsx
+src/components/pos/SplitPaymentModal.tsx
+src/lib/offline/db.ts
+src/lib/offline/sync.ts
+src/hooks/useOffline.ts
+public/sw.js
+```
+
+### Modified Files
+
+```
+prisma/schema.prisma              — Add TransactionPayment model, SPLIT enum
+src/lib/payments/index.ts          — Add split payment support to completeTransaction()
+src/app/(app)/pos/page.tsx         — Integrate all three features
+src/components/pos/CheckoutModal.tsx — Add age gate + split payment button
+src/components/pos/ReceiptModal.tsx  — Show split payments + age verification
+src/app/providers.tsx              — Register service worker
+```
+
+### NPM Packages to Install
+
+```bash
+npm install idb                    # IndexedDB wrapper for offline storage
+# Optional for production:
+npm install quagga2                # Camera barcode scanning
+npm install pdf417-decoder         # Driver's license barcode parsing
+```
