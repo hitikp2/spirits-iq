@@ -131,7 +131,7 @@ export default function POSPage() {
   const total = subtotal + tax;
 
   const handleCharge = useCallback(
-    (method: "CASH" | "CARD") => {
+    (method: "CASH" | "CARD" | "APPLE_PAY" | "GOOGLE_PAY") => {
       if (cart.length === 0) return;
       const hasAgeRestricted = cart.some((item) => {
         const product = products.find((p: Product) => p.id === item.productId);
@@ -549,6 +549,30 @@ export default function POSPage() {
                 )}
               >
                 {saleMutation.isPending ? "Processing..." : "Card"}
+              </button>
+              <button
+                onClick={() => handleCharge("APPLE_PAY")}
+                disabled={cart.length === 0 || saleMutation.isPending}
+                className={cn(
+                  "py-3 rounded-xl font-display font-bold text-sm transition-all",
+                  cart.length === 0
+                    ? "bg-surface-800 text-surface-400 cursor-not-allowed"
+                    : "bg-white text-black hover:brightness-95 active:scale-[0.98]"
+                )}
+              >
+                {saleMutation.isPending ? "..." : "Apple Pay"}
+              </button>
+              <button
+                onClick={() => handleCharge("GOOGLE_PAY")}
+                disabled={cart.length === 0 || saleMutation.isPending}
+                className={cn(
+                  "py-3 rounded-xl font-display font-bold text-sm transition-all",
+                  cart.length === 0
+                    ? "bg-surface-800 text-surface-400 cursor-not-allowed"
+                    : "bg-white text-black hover:brightness-95 active:scale-[0.98]"
+                )}
+              >
+                {saleMutation.isPending ? "..." : "Google Pay"}
               </button>
             </div>
 

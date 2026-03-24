@@ -140,6 +140,12 @@ export async function POST(request: NextRequest) {
           await client.api.accounts(creds.accountSid).fetch();
           return NextResponse.json({ success: true, data: { status: "connected" } } satisfies ApiResponse);
         }
+        if (provider === "stripe") {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(creds.secretKey, { apiVersion: "2024-04-10" });
+          await stripe.balance.retrieve();
+          return NextResponse.json({ success: true, data: { status: "connected" } } satisfies ApiResponse);
+        }
         return NextResponse.json({ success: true, data: { status: "unknown_provider" } } satisfies ApiResponse);
       } catch {
         return NextResponse.json({ success: true, data: { status: "failed" } } satisfies ApiResponse);

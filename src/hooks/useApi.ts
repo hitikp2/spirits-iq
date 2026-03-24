@@ -131,6 +131,30 @@ export function useSmsCampaigns(storeId: string) {
   });
 }
 
+export function useCreateCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      storeId: string;
+      name: string;
+      messageBody: string;
+      targetTier?: string;
+      targetTags?: string[];
+      scheduledFor?: string;
+    }) => poster(`${BASE}/sms`, { action: "campaign-create", ...body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sms-campaigns"] }),
+  });
+}
+
+export function useSendCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (campaignId: string) =>
+      poster(`${BASE}/sms`, { action: "campaign-send", campaignId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sms-campaigns"] }),
+  });
+}
+
 // ─── AI Insights ─────────────────────────────────────────
 export function useInsights(storeId: string) {
   return useQuery({

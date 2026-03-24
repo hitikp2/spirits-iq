@@ -42,8 +42,12 @@ const INTEGRATION_PROVIDERS = [
     name: "Stripe",
     icon: "💳",
     description: "Accept credit card payments at POS and online",
-    mode: "oauth" as const,
-    fields: [],
+    mode: "byok" as const,
+    fields: [
+      { key: "secretKey", label: "Secret Key", placeholder: "sk_live_... or sk_test_...", secret: true },
+      { key: "publishableKey", label: "Publishable Key", placeholder: "pk_live_... or pk_test_..." },
+      { key: "webhookSecret", label: "Webhook Secret", placeholder: "whsec_...", secret: true },
+    ],
     docsUrl: "https://stripe.com/docs",
   },
   {
