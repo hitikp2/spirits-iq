@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { BarcodeDetector } from "barcode-detector/ponyfill";
 import { cn } from "@/lib/utils";
 
 interface Product {
@@ -54,13 +55,7 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
 
     async function start() {
       try {
-        // Check for BarcodeDetector support
-        if (!("BarcodeDetector" in window)) {
-          setError("no-detector");
-          return;
-        }
-
-        const detector = new (window as any).BarcodeDetector({
+        const detector = new BarcodeDetector({
           formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "qr_code"],
         });
         detectorRef.current = detector;
@@ -118,6 +113,8 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
         if (!cancelled) {
           if (err.name === "NotAllowedError") {
             setError("Camera access denied. Please allow camera in your browser settings.");
+          } else if (err.name === "NotFoundError" || err.name === "NotReadableError") {
+            setError("no-detector");
           } else {
             setError("no-detector");
           }
