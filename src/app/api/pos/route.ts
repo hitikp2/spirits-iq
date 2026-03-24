@@ -2,9 +2,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { completeTransaction } from "@/lib/payments";
 import { getUpsellSuggestions } from "@/lib/ai";
 import { db } from "@/lib/db";
+import crypto from "crypto";
 import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
+
+// ─── Resolve Stripe secret key: store integration → env var ───
+async function getStripeKey(storeId: string): Promise<string | null> {
+  // Try store-level credentials first (from Settings > Integrations)
+  try {
+    const integration = await db.storeIntegration.findUnique({
+      where: { storeId_provider: { storeId, provider: "stripe" } },
+    });
+    if (integration?.credentials && integration.isActive) {
+      const secret = process.env.NEXTAUTH_SECRET || "";
+      const key = crypto.scryptSync(secret, "spirits-iq-salt", 32);
+      const [ivHex, tagHex, encrypted] = integration.credentials.split(":");
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+      decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+      let decrypted = decipher.update(encrypted, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      const creds = JSON.parse(decrypted);
+      if (creds.secretKey) return creds.secretKey;
+    }
+  } catch {}
+  // Fall back to env var
+  return process.env.STRIPE_SECRET_KEY || null;
+}
 
 // POST /api/pos — Process a sale or create payment intent
 export async function POST(request: NextRequest) {
@@ -23,14 +47,15 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      if (!process.env.STRIPE_SECRET_KEY) {
+      const stripeKey = await getStripeKey(storeId);
+      if (!stripeKey) {
         return NextResponse.json(
           { success: false, error: "Stripe is not configured. Add your Secret Key in Settings > Integrations." } satisfies ApiResponse,
           { status: 503 }
         );
       }
       const Stripe = (await import("stripe")).default;
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" });
+      const stripe = new Stripe(stripeKey, { apiVersion: "2024-04-10" });
 
       const paymentIntent = await stripe.paymentIntents.create({
         amount,
@@ -74,15 +99,18 @@ export async function POST(request: NextRequest) {
     let cardBrand: string | undefined;
 
     // If a Stripe PaymentIntent was used, retrieve card details
-    if (stripePaymentId && process.env.STRIPE_SECRET_KEY) {
+    if (stripePaymentId) {
       try {
-        const Stripe = (await import("stripe")).default;
-        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" });
-        const pi = await stripe.paymentIntents.retrieve(stripePaymentId);
-        if (pi.status === "succeeded" && pi.latest_charge) {
-          const charge = await stripe.charges.retrieve(pi.latest_charge as string);
-          cardLast4 = charge.payment_method_details?.card?.last4 || undefined;
-          cardBrand = charge.payment_method_details?.card?.brand || undefined;
+        const stripeKey = await getStripeKey(storeId);
+        if (stripeKey) {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(stripeKey, { apiVersion: "2024-04-10" });
+          const pi = await stripe.paymentIntents.retrieve(stripePaymentId);
+          if (pi.status === "succeeded" && pi.latest_charge) {
+            const charge = await stripe.charges.retrieve(pi.latest_charge as string);
+            cardLast4 = charge.payment_method_details?.card?.last4 || undefined;
+            cardBrand = charge.payment_method_details?.card?.brand || undefined;
+          }
         }
       } catch (err) {
         console.warn("Could not retrieve Stripe card details:", err);
