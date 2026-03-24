@@ -4,6 +4,8 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useInventory, useProcessSale, useUpsellSuggestion } from "@/hooks/useApi";
 import { formatCurrency, cn } from "@/lib/utils";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 const TAX_RATE = 0.0975;
 
@@ -29,6 +31,80 @@ interface Product {
   abv: number | null;
 }
 
+// ─── Stripe Payment Form (inside Elements provider) ─────
+function PaymentForm({
+  total,
+  onSuccess,
+  onCancel,
+}: {
+  total: number;
+  onSuccess: (paymentIntentId: string) => void;
+  onCancel: () => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setProcessing(true);
+    setError("");
+
+    const { error: submitError, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: window.location.href,
+      },
+      redirect: "if_required",
+    });
+
+    if (submitError) {
+      setError(submitError.message || "Payment failed");
+      setProcessing(false);
+    } else if (paymentIntent && paymentIntent.status === "succeeded") {
+      onSuccess(paymentIntent.id);
+    } else {
+      setError("Payment was not completed. Please try again.");
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="rounded-xl border border-surface-600 bg-white p-4">
+        <PaymentElement
+          options={{
+            layout: "tabs",
+            wallets: { applePay: "auto", googlePay: "auto" },
+          }}
+        />
+      </div>
+      {error && (
+        <p className="font-body text-xs text-danger text-center">{error}</p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={processing}
+          className="flex-1 py-3 rounded-xl font-display font-bold text-sm bg-surface-800 text-surface-300 hover:bg-surface-700 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!stripe || processing}
+          className="flex-1 py-3 rounded-xl font-display font-bold text-sm bg-brand text-surface-950 transition-opacity disabled:opacity-50"
+        >
+          {processing ? "Processing..." : `Pay ${formatCurrency(total)}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export default function POSPage() {
   const { data: session } = useSession();
   const storeId = (session?.user as any)?.storeId ?? "";
@@ -44,6 +120,13 @@ export default function POSPage() {
   const [customerLookupOpen, setCustomerLookupOpen] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupResult, setLookupResult] = useState<any>(null);
+
+  // Stripe payment modal state
+  const [paymentModal, setPaymentModal] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<"CARD" | "APPLE_PAY" | "GOOGLE_PAY">("CARD");
+  const [paymentError, setPaymentError] = useState("");
 
   const { data: products = [], isLoading } = useInventory(storeId) as {
     data: Product[];
@@ -130,9 +213,88 @@ export default function POSPage() {
   const tax = subtotal * TAX_RATE;
   const total = subtotal + tax;
 
-  const handleCharge = useCallback(
-    (method: "CASH" | "CARD" | "APPLE_PAY" | "GOOGLE_PAY") => {
+  // Cash sale — immediate, no Stripe
+  const handleCashCharge = useCallback(() => {
+    if (cart.length === 0) return;
+    const hasAgeRestricted = cart.some((item) => {
+      const product = products.find((p: Product) => p.id === item.productId);
+      return product?.isAgeRestricted;
+    });
+
+    saleMutation.mutate(
+      {
+        storeId,
+        cashierId: userId,
+        customerId,
+        items: cart.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          unitPrice: i.price,
+          discount: 0,
+        })),
+        paymentMethod: "CASH",
+        ageVerified: hasAgeRestricted ? true : undefined,
+      },
+      {
+        onSuccess: () => {
+          setCart([]);
+          setCustomerId(undefined);
+          setCustomerName("");
+          setSaleSuccess(true);
+        },
+      }
+    );
+  }, [cart, products, saleMutation, storeId, userId, customerId]);
+
+  // Card / Apple Pay / Google Pay — open Stripe payment sheet
+  const handleCardCharge = useCallback(
+    async (method: "CARD" | "APPLE_PAY" | "GOOGLE_PAY") => {
       if (cart.length === 0) return;
+      setPaymentMethod(method);
+      setPaymentError("");
+
+      const totalCents = Math.round(total * 100);
+
+      try {
+        // Create PaymentIntent
+        const res = await fetch("/api/pos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create-intent", amount: totalCents, storeId }),
+        });
+        const json = await res.json();
+
+        if (!json.success) {
+          setPaymentError(json.error || "Could not create payment. Is Stripe configured?");
+          return;
+        }
+
+        // Load Stripe.js with the publishable key
+        const pkRes = await fetch("/api/integrations?storeId=" + storeId + "&action=stripe-pk");
+        const pkJson = await pkRes.json();
+        const pk = pkJson.data?.publishableKey || "";
+
+        if (!pk) {
+          setPaymentError("Stripe Publishable Key not configured. Add it in Settings > Integrations.");
+          return;
+        }
+
+        setStripePromise(loadStripe(pk));
+        setClientSecret(json.data.clientSecret);
+        setPaymentModal(true);
+      } catch {
+        setPaymentError("Network error creating payment");
+      }
+    },
+    [cart, total, storeId]
+  );
+
+  // Called after Stripe payment succeeds
+  const handlePaymentSuccess = useCallback(
+    (paymentIntentId: string) => {
+      setPaymentModal(false);
+      setClientSecret(null);
+
       const hasAgeRestricted = cart.some((item) => {
         const product = products.find((p: Product) => p.id === item.productId);
         return product?.isAgeRestricted;
@@ -149,7 +311,8 @@ export default function POSPage() {
             unitPrice: i.price,
             discount: 0,
           })),
-          paymentMethod: method,
+          paymentMethod,
+          stripePaymentId: paymentIntentId,
           ageVerified: hasAgeRestricted ? true : undefined,
         },
         {
@@ -162,7 +325,7 @@ export default function POSPage() {
         }
       );
     },
-    [cart, products, saleMutation, storeId, userId, customerId]
+    [cart, products, saleMutation, storeId, userId, customerId, paymentMethod]
   );
 
   const handleCustomerLookup = useCallback(async () => {
@@ -527,7 +690,7 @@ export default function POSPage() {
 
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => handleCharge("CASH")}
+                onClick={handleCashCharge}
                 disabled={cart.length === 0 || saleMutation.isPending}
                 className={cn(
                   "py-3 rounded-xl font-display font-bold text-sm transition-all",
@@ -539,7 +702,7 @@ export default function POSPage() {
                 {saleMutation.isPending ? "Processing..." : "Cash"}
               </button>
               <button
-                onClick={() => handleCharge("CARD")}
+                onClick={() => handleCardCharge("CARD")}
                 disabled={cart.length === 0 || saleMutation.isPending}
                 className={cn(
                   "py-3 rounded-xl font-display font-bold text-sm transition-all",
@@ -551,7 +714,7 @@ export default function POSPage() {
                 {saleMutation.isPending ? "Processing..." : "Card"}
               </button>
               <button
-                onClick={() => handleCharge("APPLE_PAY")}
+                onClick={() => handleCardCharge("APPLE_PAY")}
                 disabled={cart.length === 0 || saleMutation.isPending}
                 className={cn(
                   "py-3 rounded-xl font-display font-bold text-sm transition-all",
@@ -560,10 +723,10 @@ export default function POSPage() {
                     : "bg-white text-black hover:brightness-95 active:scale-[0.98]"
                 )}
               >
-                {saleMutation.isPending ? "..." : "Apple Pay"}
+                Apple Pay
               </button>
               <button
-                onClick={() => handleCharge("GOOGLE_PAY")}
+                onClick={() => handleCardCharge("GOOGLE_PAY")}
                 disabled={cart.length === 0 || saleMutation.isPending}
                 className={cn(
                   "py-3 rounded-xl font-display font-bold text-sm transition-all",
@@ -572,13 +735,13 @@ export default function POSPage() {
                     : "bg-white text-black hover:brightness-95 active:scale-[0.98]"
                 )}
               >
-                {saleMutation.isPending ? "..." : "Google Pay"}
+                Google Pay
               </button>
             </div>
 
-            {saleMutation.isError && (
+            {(saleMutation.isError || paymentError) && (
               <p className="text-xs text-danger font-body text-center">
-                {(saleMutation.error as Error)?.message || "Sale failed. Try again."}
+                {paymentError || (saleMutation.error as Error)?.message || "Sale failed. Try again."}
               </p>
             )}
 
@@ -593,6 +756,58 @@ export default function POSPage() {
           </div>
         )}
       </div>
+
+      {/* Stripe Payment Modal */}
+      {paymentModal && clientSecret && stripePromise && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-surface-600 bg-surface-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-surface-600 px-5 py-4">
+              <div>
+                <h2 className="font-display text-lg font-bold text-surface-100">Payment</h2>
+                <p className="font-mono text-sm text-brand">{formatCurrency(total)}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setPaymentModal(false);
+                  setClientSecret(null);
+                  setPaymentError("");
+                }}
+                className="rounded-lg p-1 text-surface-400 transition-colors hover:bg-surface-800 hover:text-surface-100"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-5">
+              <Elements
+                stripe={stripePromise}
+                options={{
+                  clientSecret,
+                  appearance: {
+                    theme: "night",
+                    variables: {
+                      colorPrimary: "#F5A623",
+                      colorBackground: "#1a1a2e",
+                      colorText: "#e0e0e0",
+                      borderRadius: "12px",
+                    },
+                  },
+                }}
+              >
+                <PaymentForm
+                  total={total}
+                  onSuccess={handlePaymentSuccess}
+                  onCancel={() => {
+                    setPaymentModal(false);
+                    setClientSecret(null);
+                  }}
+                />
+              </Elements>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

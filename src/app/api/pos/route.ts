@@ -6,15 +6,53 @@ import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/pos — Process a sale
+// POST /api/pos — Process a sale or create payment intent
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const storeId = request.headers.get("x-store-id") || body.storeId;
     const cashierId = request.headers.get("x-user-id") || body.cashierId;
+    const { action } = body;
+
+    // ─── Create PaymentIntent for web card/wallet payments ───
+    if (action === "create-intent") {
+      const { amount } = body; // amount in cents
+      if (!amount || !storeId) {
+        return NextResponse.json(
+          { success: false, error: "amount and storeId required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return NextResponse.json(
+          { success: false, error: "Stripe is not configured. Add your Secret Key in Settings > Integrations." } satisfies ApiResponse,
+          { status: 503 }
+        );
+      }
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" });
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: "usd",
+        automatic_payment_methods: { enabled: true },
+        metadata: { storeId, cashierId: cashierId || "" },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          clientSecret: paymentIntent.client_secret,
+          paymentIntentId: paymentIntent.id,
+        },
+      } satisfies ApiResponse);
+    }
+
+    // ─── Complete sale (after payment or for cash) ───────────
     const {
       customerId,
       items, paymentMethod, tip, ageVerified, verificationMethod,
+      stripePaymentId: clientStripeId,
     } = body;
 
     // Validation
@@ -25,38 +63,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Resolve the store's active register (instead of trusting client-sent ID)
+    // Resolve the store's active register
     const register = await db.register.findFirst({
       where: { storeId, isActive: true },
     });
     const registerId = register?.id || null;
 
-    // For card payments via Stripe Terminal, we would create a payment intent.
-    // This requires STRIPE_SECRET_KEY and a configured register with a terminal.
-    // For now, card payments are recorded without Stripe processing.
-    let stripePaymentId: string | undefined;
+    let stripePaymentId: string | undefined = clientStripeId;
     let cardLast4: string | undefined;
     let cardBrand: string | undefined;
 
-    if (
-      (paymentMethod === "CARD" || paymentMethod === "APPLE_PAY" || paymentMethod === "GOOGLE_PAY") &&
-      process.env.STRIPE_SECRET_KEY &&
-      registerId
-    ) {
+    // If a Stripe PaymentIntent was used, retrieve card details
+    if (stripePaymentId && process.env.STRIPE_SECRET_KEY) {
       try {
-        const { createTerminalPaymentIntent } = await import("@/lib/payments");
-        const subtotal = items.reduce(
-          (s: number, i: { unitPrice: number; quantity: number }) => s + i.unitPrice * i.quantity,
-          0
-        );
-        const totalCents = Math.round(subtotal * 1.0975 * 100);
-        const pi = await createTerminalPaymentIntent(totalCents, registerId, {
-          cashierId,
-          customerId: customerId || "",
-        });
-        stripePaymentId = pi.id;
-      } catch (stripeErr) {
-        console.warn("Stripe Terminal not available, recording card sale without payment processing:", stripeErr);
+        const Stripe = (await import("stripe")).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" });
+        const pi = await stripe.paymentIntents.retrieve(stripePaymentId);
+        if (pi.status === "succeeded" && pi.latest_charge) {
+          const charge = await stripe.charges.retrieve(pi.latest_charge as string);
+          cardLast4 = charge.payment_method_details?.card?.last4 || undefined;
+          cardBrand = charge.payment_method_details?.card?.brand || undefined;
+        }
+      } catch (err) {
+        console.warn("Could not retrieve Stripe card details:", err);
       }
     }
 

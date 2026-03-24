@@ -33,8 +33,29 @@ function decrypt(data: string): string {
 // GET /api/integrations — List store integrations (credentials masked)
 export async function GET(request: NextRequest) {
   try {
-    const storeId = request.headers.get("x-store-id") || new URL(request.url).searchParams.get("storeId");
+    const { searchParams } = new URL(request.url);
+    const storeId = request.headers.get("x-store-id") || searchParams.get("storeId");
+    const action = searchParams.get("action");
     if (!storeId) return NextResponse.json({ success: false, error: "storeId required" } satisfies ApiResponse, { status: 400 });
+
+    // Return the Stripe publishable key (safe to expose to client)
+    if (action === "stripe-pk") {
+      // Check env var first, then store-level integration
+      const envPk = process.env.STRIPE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+      if (envPk) {
+        return NextResponse.json({ success: true, data: { publishableKey: envPk } } satisfies ApiResponse);
+      }
+      const integration = await db.storeIntegration.findUnique({
+        where: { storeId_provider: { storeId, provider: "stripe" } },
+      });
+      if (integration?.credentials) {
+        try {
+          const creds = JSON.parse(decrypt(integration.credentials));
+          return NextResponse.json({ success: true, data: { publishableKey: creds.publishableKey || "" } } satisfies ApiResponse);
+        } catch {}
+      }
+      return NextResponse.json({ success: true, data: { publishableKey: "" } } satisfies ApiResponse);
+    }
 
     const integrations = await db.storeIntegration.findMany({ where: { storeId } });
 
