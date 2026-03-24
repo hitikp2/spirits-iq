@@ -95,10 +95,26 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action } = body;
 
+    // Check Twilio config upfront for send actions
+    const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+
     if (action === "send") {
+      if (!twilioConfigured) {
+        return NextResponse.json(
+          { success: false, error: "SMS not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in environment variables." } satisfies ApiResponse,
+          { status: 503 }
+        );
+      }
       const { customerId, message } = body;
+      if (!customerId || !message) {
+        return NextResponse.json(
+          { success: false, error: "customerId and message are required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+      const storeId = request.headers.get("x-store-id") || "";
       const customer = await db.customer.findUnique({ where: { id: customerId } });
-      if (!customer) {
+      if (!customer || (storeId && customer.storeId !== storeId)) {
         return NextResponse.json(
           { success: false, error: "Customer not found" } satisfies ApiResponse,
           { status: 404 }
@@ -108,20 +124,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: !!sid,
         data: { twilioSid: sid },
-        error: sid ? undefined : "Failed to send",
+        error: sid ? undefined : "Twilio failed to deliver the message. Check phone number format.",
       } satisfies ApiResponse);
     }
 
     if (action === "send-direct") {
-      // Send SMS directly to a phone number (e.g. receipt to non-customer)
+      if (!twilioConfigured) {
+        return NextResponse.json(
+          { success: false, error: "SMS not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in environment variables." } satisfies ApiResponse,
+          { status: 503 }
+        );
+      }
       const { phone, message } = body;
       if (!phone || !message) {
         return NextResponse.json(
-          { success: false, error: "Phone and message required" } satisfies ApiResponse,
+          { success: false, error: "Phone and message are required" } satisfies ApiResponse,
           { status: 400 }
         );
       }
-      // Look up customer by phone, or use a placeholder
+      // Look up customer by phone, or send directly
       const directStoreId = body.storeId || request.headers.get("x-store-id") || "";
       const customer = directStoreId
         ? await db.customer.findFirst({ where: { phone, storeId: directStoreId } })
@@ -132,7 +153,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: !!sid,
         data: { twilioSid: sid },
-        error: sid ? undefined : "Failed to send",
+        error: sid ? undefined : "Twilio failed to deliver the message. Check phone number format (e.g. +15551234567).",
       } satisfies ApiResponse);
     }
 
