@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { BarcodeDetector } from "barcode-detector/ponyfill";
 import { cn } from "@/lib/utils";
 
@@ -214,8 +215,8 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
 
   const showManualFallback = error === "no-detector" || manualEntry;
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+  const modal = (
+    <div className="fixed inset-0 flex flex-col bg-black" style={{ zIndex: 9999 }}>
       {/* Camera viewport */}
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
         {/* Live camera feed */}
@@ -230,28 +231,31 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
         {/* Dark overlay outside scan area */}
         <div className="absolute inset-0 bg-black/40" />
 
-        {/* Top bar */}
-        <div className="absolute top-3 left-3 right-3 flex justify-between items-center z-10">
+        {/* Top bar — safe area for notch/dynamic island */}
+        <div
+          className="absolute left-0 right-0 flex justify-between items-center z-10 px-4"
+          style={{ top: "max(12px, env(safe-area-inset-top, 12px))" }}
+        >
           <button
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/10 text-white flex items-center justify-center text-lg active:scale-90 transition-transform"
+            className="w-11 h-11 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-white flex items-center justify-center text-lg active:scale-90 transition-transform"
           >
             ✕
           </button>
           <div className="flex gap-2">
             <button
               onClick={() => { setManualEntry(!manualEntry); setError(null); }}
-              className="h-10 px-3 rounded-full bg-black/50 backdrop-blur-xl border border-white/10 text-white flex items-center justify-center text-xs font-mono active:scale-90 transition-transform"
+              className="h-11 px-4 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-white flex items-center justify-center text-xs font-mono font-bold active:scale-90 transition-transform"
             >
               SKU
             </button>
             <button
               onClick={toggleTorch}
               className={cn(
-                "w-10 h-10 rounded-full backdrop-blur-xl border flex items-center justify-center text-lg active:scale-90 transition-transform",
+                "w-11 h-11 rounded-full backdrop-blur-xl border flex items-center justify-center text-lg active:scale-90 transition-transform",
                 torchOn
                   ? "bg-brand/30 border-brand/40 text-brand"
-                  : "bg-black/50 border-white/10 text-white"
+                  : "bg-black/60 border-white/15 text-white"
               )}
             >
               ⚡
@@ -262,8 +266,6 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
         {/* Scan frame — centered */}
         {!showManualFallback && (
           <div className="relative z-10 w-60 h-[150px]">
-            {/* Clear window in the overlay */}
-            <div className="absolute inset-0 bg-transparent" />
             {/* Corners */}
             <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-brand rounded-tl-lg" />
             <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-brand rounded-tr-lg" />
@@ -321,7 +323,10 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
             "absolute bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-700 rounded-t-[20px] p-5 transition-transform duration-300 z-20",
             scanResult ? "translate-y-0" : "translate-y-full"
           )}
-          style={{ transitionTimingFunction: "cubic-bezier(.34,1.56,.64,1)" }}
+          style={{
+            transitionTimingFunction: "cubic-bezier(.34,1.56,.64,1)",
+            paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
+          }}
         >
           {scanResult && (
             <>
@@ -369,4 +374,8 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
       `}</style>
     </div>
   );
+
+  // Portal to document.body so it renders above the app shell (header, sidebar, nav)
+  if (typeof document === "undefined") return modal;
+  return createPortal(modal, document.body);
 }
