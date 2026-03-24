@@ -242,12 +242,11 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
   }, [manualValue, matchProduct]);
 
   // Capture photo from live camera feed
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback((): string | null => {
     const video = videoRef.current;
     if (!video || video.readyState < 2) return null;
 
     const canvas = document.createElement("canvas");
-    // Use a reasonable resolution for the photo
     const w = Math.min(video.videoWidth, 1280);
     const h = Math.round((w / video.videoWidth) * video.videoHeight);
     canvas.width = w;
@@ -258,60 +257,14 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
     return canvas.toDataURL("image/jpeg", 0.85);
   }, []);
 
-  // Open quick-add: capture photo + send to AI
-  const openQuickAdd = useCallback(async () => {
-    scanningRef.current = false;
-    setQuickAdd(true);
-    setQuickForm(EMPTY_FORM);
-    setError(null);
-
-    // Capture current camera frame
-    const photo = capturePhoto();
-    if (photo) {
-      setPhotoBase64(photo);
-      // Auto-identify with AI
-      setIdentifying(true);
-      try {
-        const res = await fetch("/api/product-identify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: photo, barcode: scannedCode || undefined }),
-        });
-        const data = await res.json();
-        if (data.success && data.data) {
-          const ai = data.data;
-          setQuickForm(f => ({
-            ...f,
-            name: ai.name || f.name,
-            brand: ai.brand || f.brand,
-            retailPrice: ai.retailPrice ? String(ai.retailPrice) : f.retailPrice,
-            costPrice: ai.costPrice ? String(ai.costPrice) : f.costPrice,
-            size: ai.size || f.size,
-            description: ai.description || f.description,
-            abv: ai.abv || f.abv,
-            imageUrl: ai.imageUrl || f.imageUrl,
-          }));
-        }
-      } catch {
-        // AI identification failed silently — user can fill manually
-      }
-      setIdentifying(false);
-    } else {
-      setPhotoBase64(null);
-    }
-  }, [capturePhoto, scannedCode]);
-
-  // Retake photo
-  const retakePhoto = useCallback(async () => {
-    const photo = capturePhoto();
-    if (!photo) return;
-    setPhotoBase64(photo);
+  // Send photo to AI for identification
+  const identifyProduct = useCallback(async (photo: string, barcode: string | null) => {
     setIdentifying(true);
     try {
       const res = await fetch("/api/product-identify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: photo, barcode: scannedCode || undefined }),
+        body: JSON.stringify({ imageBase64: photo, barcode: barcode || undefined }),
       });
       const data = await res.json();
       if (data.success && data.data) {
@@ -328,9 +281,38 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
           imageUrl: ai.imageUrl || f.imageUrl,
         }));
       }
-    } catch { /* silent */ }
+    } catch {
+      // AI identification failed — user can fill manually
+    }
     setIdentifying(false);
-  }, [capturePhoto, scannedCode]);
+  }, []);
+
+  // Open quick-add: capture photo + send to AI
+  const openQuickAdd = useCallback(async () => {
+    // Capture photo FIRST while camera is still showing the product
+    const photo = capturePhoto();
+
+    scanningRef.current = false;
+    setQuickAdd(true);
+    setQuickForm(EMPTY_FORM);
+    setError(null);
+
+    if (photo) {
+      setPhotoBase64(photo);
+      identifyProduct(photo, scannedCode);
+    } else {
+      setPhotoBase64(null);
+    }
+  }, [capturePhoto, scannedCode, identifyProduct]);
+
+  // Retake photo and re-identify
+  const retakePhoto = useCallback(() => {
+    const photo = capturePhoto();
+    if (!photo) return;
+    setPhotoBase64(photo);
+    setQuickForm(EMPTY_FORM);
+    identifyProduct(photo, scannedCode);
+  }, [capturePhoto, scannedCode, identifyProduct]);
 
   // Save quick-add product via API then add to cart
   const handleQuickSave = useCallback(async () => {
@@ -575,7 +557,10 @@ export default function ScannerModal({ open, onClose, onAddToCart, onProductCrea
                 <button
                   onClick={() => {
                     const photo = capturePhoto();
-                    if (photo) { setPhotoBase64(photo); retakePhoto(); }
+                    if (photo) {
+                      setPhotoBase64(photo);
+                      identifyProduct(photo, scannedCode);
+                    }
                   }}
                   className="w-full h-24 rounded-xl border-2 border-dashed border-surface-600 flex items-center justify-center gap-2 text-surface-400 text-sm active:scale-[0.98] transition-transform"
                 >

@@ -880,6 +880,18 @@ export default function POSPage() {
                       </span>
                     )}
 
+                    {/* Product image */}
+                    {product.imageUrl && (
+                      <div className="w-full h-20 rounded-lg overflow-hidden bg-surface-800 -mt-0.5 mb-0.5">
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+
                     {/* Top: name + stock */}
                     <div className="flex justify-between items-start">
                       <span className="font-display text-xs font-bold text-surface-100 leading-tight line-clamp-2 pr-5">
