@@ -61,12 +61,23 @@ export default function DashboardLayout({
   // ─── Swipe navigation for POS ───
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
+  const swipeBlocked = useRef(false);
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
+    // Block swipe if touch starts inside a horizontally scrollable element
+    let el = e.target as HTMLElement | null;
+    swipeBlocked.current = false;
+    while (el && el !== e.currentTarget) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        swipeBlocked.current = true;
+        break;
+      }
+      el = el.parentElement;
+    }
   }, []);
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (!isPos) return;
+    if (!isPos || swipeBlocked.current) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     const dy = e.changedTouches[0].clientY - touchStartY.current;
     // Only trigger on horizontal swipes (>100px, more horizontal than vertical)
