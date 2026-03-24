@@ -92,21 +92,6 @@ export default function ReceiptModal({
     return lines.join("\n");
   }, [orderNumber, date, time, items, subtotal, tax, total, payLabel]);
 
-  // Open SMS dialog — if customer phone is known, send directly; otherwise show input
-  const handleSmsClick = useCallback(() => {
-    if (customerPhone) {
-      // Customer already identified — send immediately without showing the input panel
-      if (!smsPhone) setSmsPhone(customerPhone);
-      if (!smsName && customerName) setSmsName(customerName);
-      // Use a microtask so state updates settle before send
-      const phone = smsPhone || customerPhone;
-      const name = smsName || customerName || "";
-      handleSendSmsDirect(phone, name);
-    } else {
-      setShowPhoneInput(true);
-    }
-  }, [customerPhone, customerName, smsPhone, smsName]);
-
   // Core send logic — accepts phone/name directly to avoid stale closure issues
   const sendReceipt = useCallback(async (phone: string, name: string) => {
     const greeting = name.trim() ? `Hi ${name.trim()}! ` : "";
@@ -174,10 +159,16 @@ export default function ReceiptModal({
     sendReceipt(smsPhone, smsName);
   }, [smsPhone, smsName, sendReceipt]);
 
-  // Called directly when customer phone is known (skips the input panel)
-  const handleSendSmsDirect = useCallback((phone: string, name: string) => {
-    sendReceipt(phone, name);
-  }, [sendReceipt]);
+  // Open SMS dialog — if customer phone is known, send directly; otherwise show input
+  const handleSmsClick = useCallback(() => {
+    if (customerPhone) {
+      const phone = customerPhone;
+      const name = customerName || "";
+      sendReceipt(phone, name);
+    } else {
+      setShowPhoneInput(true);
+    }
+  }, [customerPhone, customerName, sendReceipt]);
 
   if (!open) return null;
 

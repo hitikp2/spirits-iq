@@ -142,15 +142,9 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      // Look up customer by phone, or send directly
-      const directStoreId = body.storeId || request.headers.get("x-store-id") || "";
-      const customer = directStoreId
-        ? await db.customer.findFirst({ where: { phone, storeId: directStoreId } })
-        : null;
+      // Always use sendSmsDirect for direct sends — it supports mediaUrl for MMS
       const smsOptions = mediaUrl ? { mediaUrl } : undefined;
-      const sid = customer
-        ? await sendSms(phone, message || "", customer.id)
-        : await sendSmsDirect(phone, message || "", smsOptions);
+      const sid = await sendSmsDirect(phone, message || "", smsOptions);
       return NextResponse.json({
         success: !!sid,
         data: { twilioSid: sid },

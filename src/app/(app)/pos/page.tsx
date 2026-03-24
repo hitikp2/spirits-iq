@@ -546,7 +546,7 @@ export default function POSPage() {
       setSaleSuccess(false);
       setReceiptOpen(true);
     }, 800);
-  }, [cart, products, subtotal, tax, total]);
+  }, [cart, products, subtotal, tax, total, customerId, customerName, customerPhone, ageVerified, verificationMethod]);
 
   // Handle charge from checkout modal — defined after payment handlers below
   // (see handleCheckoutCharge below)
