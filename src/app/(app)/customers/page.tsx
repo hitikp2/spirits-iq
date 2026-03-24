@@ -145,10 +145,12 @@ export default function CustomersPage() {
       ) : (
         <div className="space-y-2">
           {customers.map((c: any) => (
-            <button
+            <div
               key={c.id}
+              role="button"
+              tabIndex={0}
               onClick={() => openDetail(c)}
-              className="w-full text-left flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl bg-surface-900 border border-surface-600 hover:border-brand/50 active:scale-[0.99] transition-all"
+              className="w-full text-left flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl bg-surface-900 border border-surface-600 hover:border-brand/50 active:scale-[0.99] transition-all cursor-pointer"
             >
               {/* Avatar */}
               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -194,7 +196,7 @@ export default function CustomersPage() {
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400">SMS</span>
                 )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}
