@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Spirits IQ – Advanced Features</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0c10;--surface:#12151c;--card:#161a24;--input:#1a1e28;--border:#1e2330;
+    --text:#f0f0f2;--t2:#7a7f8e;--t3:#4a4f5e;
+    --amber:#e5a526;--amber-g:rgba(229,165,38,.15);--amber-s:rgba(229,165,38,.08);
+    --green:#34c759;--green-s:rgba(52,199,89,.1);
+    --red:#ff453a;--red-s:rgba(255,69,58,.1);
+    --blue:#5a9cf5;--blue-s:rgba(90,156,245,.08);
+    --purple:#a78bfa;--purple-s:rgba(167,139,250,.08);
+    --r:12px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased}
+
+.shell{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;padding:12px 14px;background:var(–bg);position:sticky;top:0;z-index:100;border-bottom:1px solid var(–border)}
+.tab{flex:1;padding:10px 6px;text-align:center;font-size:11px;font-weight:600;color:var(–t3);background:var(–surface);border:1px solid var(–border);border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .2s}
+.tab:active{transform:scale(.96)}
+.tab.on{background:var(–amber-g);border-color:var(–amber);color:var(–amber)}
+.tab-i{font-size:18px}
+
+.panel{display:none;flex:1;padding:16px;animation:fadeIn .3s ease}
+.panel.on{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* Section labels */
+.sec{font-size:10px;font-weight:700;color:var(–t3);letter-spacing:1.5px;text-transform:uppercase;margin:16px 0 10px}
+.sec:first-child{margin-top:0}
+
+/* Cards */
+.fcard{background:var(–surface);border:1px solid var(–border);border-radius:16px;padding:16px;margin-bottom:12px}
+.fcard-t{font-size:14px;font-weight:700;margin-bottom:4px}
+.fcard-d{font-size:12px;color:var(–t2);line-height:1.5}
+
+/* Buttons */
+.btn{width:100%;padding:14px;border-radius:var(–r);border:0;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s}
+.btn:active{transform:scale(.97)}
+.btn-amber{background:var(–amber);color:#000}
+.btn-green{background:var(–green);color:#000}
+.btn-surface{background:var(–card);color:var(–text);border:1px solid var(–border)}
+.btn-red{background:var(–red-s);color:var(–red);border:1px solid rgba(255,69,58,.2)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-sm{padding:10px 14px;font-size:12px;width:auto}
+.btn-row{display:flex;gap:8px}
+.btn-row .btn{flex:1}
+
+/* ═══════════════════════════════════════
+1. AGE VERIFICATION
+═══════════════════════════════════════ */
+.av-trigger{background:linear-gradient(135deg,rgba(255,69,58,.08),rgba(255,69,58,.02));border:1px solid rgba(255,69,58,.15);border-radius:16px;padding:16px;margin-bottom:12px;position:relative;overflow:hidden}
+.av-trigger::before{content:’’;position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,rgba(255,69,58,.06) 0%,transparent 70%)}
+.av-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:var(–red-s);font-size:9px;font-weight:700;color:var(–red);letter-spacing:.5px;margin-bottom:8px}
+.av-title{font-size:15px;font-weight:700;margin-bottom:4px}
+.av-desc{font-size:11px;color:var(–t2);line-height:1.5}
+
+/* Age gate modal */
+.age-gate{background:var(–surface);border-radius:20px;border:1px solid var(–border);overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.ag-header{background:linear-gradient(135deg,#2a1a1a,#1a0a0a);padding:24px 20px;text-align:center;border-bottom:1px solid rgba(255,69,58,.15)}
+.ag-icon{font-size:48px;margin-bottom:8px}
+.ag-title{font-size:18px;font-weight:700}
+.ag-sub{font-size:11px;color:var(–t2);margin-top:4px}
+.ag-body{padding:20px}
+
+.ag-methods{display:flex;gap:8px;margin-bottom:16px}
+.ag-method{flex:1;padding:14px 8px;border-radius:var(–r);background:var(–card);border:1.5px solid var(–border);text-align:center;cursor:pointer;transition:all .15s}
+.ag-method:active{transform:scale(.95)}
+.ag-method.sel{border-color:var(–amber);background:var(–amber-g)}
+.ag-m-i{font-size:24px;margin-bottom:4px}
+.ag-m-l{font-size:10px;font-weight:600;color:var(–t2)}
+.ag-method.sel .ag-m-l{color:var(–amber)}
+
+/* DOB entry */
+.dob-row{display:flex;gap:8px;margin-bottom:16px}
+.dob-input{flex:1;padding:12px;border-radius:var(–r);background:var(–input);border:1px solid var(–border);color:var(–text);font-size:16px;font-family:‘DM Mono’,monospace;text-align:center;outline:0;transition:border-color .2s}
+.dob-input:focus{border-color:var(–amber)}
+.dob-input::placeholder{color:var(–t3)}
+
+/* ID scan simulation */
+.id-scan-area{border:2px dashed var(–border);border-radius:16px;padding:32px 16px;text-align:center;margin-bottom:16px;transition:all .3s}
+.id-scan-area.scanning{border-color:var(–amber);background:var(–amber-s)}
+.id-scan-area.verified{border-color:var(–green);background:var(–green-s)}
+.id-scan-icon{font-size:36px;margin-bottom:8px}
+.id-scan-text{font-size:12px;color:var(–t2);font-weight:500}
+
+/* Verification result */
+.av-result{padding:16px;border-radius:var(–r);margin-bottom:16px;display:flex;align-items:center;gap:12px}
+.av-result.pass{background:var(–green-s);border:1px solid rgba(52,199,89,.15)}
+.av-result.fail{background:var(–red-s);border:1px solid rgba(255,69,58,.15)}
+.avr-icon{font-size:28px}
+.avr-text{font-size:13px;font-weight:600}
+.avr-sub{font-size:10px;color:var(–t2);margin-top:2px}
+.avr-text.pass{color:var(–green)}
+.avr-text.fail{color:var(–red)}
+
+/* ═══════════════════════════════════════
+2. SPLIT PAYMENT
+═══════════════════════════════════════ */
+.split-viz{background:var(–surface);border:1px solid var(–border);border-radius:16px;padding:16px;margin-bottom:12px}
+
+.split-total{text-align:center;margin-bottom:16px}
+.split-total-label{font-size:10px;font-weight:600;color:var(–t3);letter-spacing:1px;text-transform:uppercase}
+.split-total-amount{font-size:32px;font-weight:700;color:var(–amber);margin-top:4px}
+
+.split-bar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-bottom:16px;gap:2px}
+.split-bar-seg{height:100%;border-radius:4px;transition:width .3s ease}
+
+.split-methods{display:flex;flex-direction:column;gap:8px}
+.split-method{display:flex;align-items:center;gap:12px;padding:12px;border-radius:var(–r);background:var(–card);border:1px solid var(–border);position:relative}
+.sm-color{width:8px;height:32px;border-radius:4px;flex-shrink:0}
+.sm-info{flex:1}
+.sm-type{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+.sm-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700}
+.sm-amount{font-family:‘DM Mono’,monospace;font-size:14px;font-weight:700}
+.sm-input{width:90px;padding:8px;border-radius:8px;background:var(–input);border:1px solid var(–border);color:var(–text);font-size:14px;font-family:‘DM Mono’,monospace;text-align:right;outline:0}
+.sm-input:focus{border-color:var(–amber)}
+.sm-remove{width:28px;height:28px;border-radius:50%;background:var(–red-s);border:0;color:var(–red);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sm-remove:active{transform:scale(.9)}
+
+.split-remaining{text-align:center;padding:10px;border-radius:var(–r);margin-top:12px;font-size:12px;font-weight:600}
+.split-remaining.balanced{background:var(–green-s);color:var(–green)}
+.split-remaining.unbalanced{background:var(–red-s);color:var(–red)}
+
+.add-split{display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;border-radius:var(–r);border:1px dashed var(–border);color:var(–t2);font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;transition:all .15s}
+.add-split:active{transform:scale(.97);border-color:var(–amber);color:var(–amber)}
+
+/* ═══════════════════════════════════════
+3. OFFLINE MODE
+═══════════════════════════════════════ */
+.offline-status{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:var(–r);margin-bottom:12px;font-size:13px;font-weight:600}
+.offline-status.online{background:var(–green-s);border:1px solid rgba(52,199,89,.12);color:var(–green)}
+.offline-status.offline{background:var(–red-s);border:1px solid rgba(255,69,58,.12);color:var(–red)}
+.os-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.os-dot.on{background:var(–green);animation:pulse 2s infinite}
+.os-dot.off{background:var(–red);animation:blink 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.sync-queue{background:var(–surface);border:1px solid var(–border);border-radius:16px;overflow:hidden;margin-bottom:12px}
+.sq-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(–border)}
+.sq-title{font-size:13px;font-weight:700}
+.sq-count{font-size:10px;font-weight:700;background:var(–amber);color:#000;padding:2px 8px;border-radius:10px}
+
+.sq-item{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(–border)}
+.sq-item:last-child{border-bottom:0}
+.sq-item-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.sq-item-info{flex:1;min-width:0}
+.sq-item-title{font-size:11px;font-weight:600}
+.sq-item-meta{font-size:9px;color:var(–t2)}
+.sq-item-status{font-size:9px;font-weight:700;padding:3px 8px;border-radius:5px}
+.sq-pending{background:var(–amber-g);color:var(–amber)}
+.sq-synced{background:var(–green-s);color:var(–green)}
+.sq-failed{background:var(–red-s);color:var(–red)}
+
+/* Offline flow diagram */
+.flow{display:flex;flex-direction:column;gap:0;margin-bottom:12px}
+.flow-step{display:flex;align-items:flex-start;gap:12px;padding:8px 0}
+.flow-line{display:flex;flex-direction:column;align-items:center;width:32px;flex-shrink:0}
+.flow-dot{width:10px;height:10px;border-radius:50%;border:2px solid var(–amber);background:var(–bg);flex-shrink:0;z-index:1}
+.flow-dot.filled{background:var(–amber)}
+.flow-connector{width:2px;flex:1;background:var(–border);min-height:20px;margin:-2px 0}
+.flow-content{padding-bottom:8px}
+.flow-title{font-size:12px;font-weight:700}
+.flow-desc{font-size:10px;color:var(–t2);line-height:1.5;margin-top:2px}
+
+/* Data cached indicator */
+.cache-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.cache-item{padding:12px;border-radius:var(–r);background:var(–card);border:1px solid var(–border);text-align:center}
+.cache-i{font-size:20px;margin-bottom:4px}
+.cache-l{font-size:10px;font-weight:600;color:var(–t2)}
+.cache-v{font-size:14px;font-weight:700;color:var(–text);margin-top:2px}
+.cache-time{font-size:8px;color:var(–t3);margin-top:2px}
+
+/* Toast */
+.toast{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-20px);padding:10px 18px;border-radius:var(–r);background:var(–green);color:#000;font-size:12px;font-weight:700;z-index:2000;opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;white-space:nowrap;box-shadow:0 8px 24px rgba(52,199,89,.3)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+
+</head>
+<body>
+<div class="shell">
+  <div class="toast" id="toast"></div>
+
+  <div class="tabs">
+    <div class="tab on" onclick="switchTab('age',this)">
+      <span class="tab-i">🪪</span>
+      Age Verify
+    </div>
+    <div class="tab" onclick="switchTab('split',this)">
+      <span class="tab-i">💳</span>
+      Split Pay
+    </div>
+    <div class="tab" onclick="switchTab('offline',this)">
+      <span class="tab-i">📡</span>
+      Offline
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       1. AGE VERIFICATION
+       ═══════════════════════════════════════ -->
+
+  <div class="panel on" id="panel-age">
+    <div class="sec">When It Triggers</div>
+    <div class="av-trigger">
+      <div class="av-badge">⚠ 21+ REQUIRED</div>
+      <div class="av-title">Age-restricted item detected</div>
+      <div class="av-desc">This modal automatically appears at checkout when any product in the cart has <strong>isAgeRestricted: true</strong> in the database. The cashier MUST verify before completing the sale.</div>
+    </div>
+
+```
+<div class="sec">Verification Gate</div>
+<div class="age-gate">
+  <div class="ag-header">
+    <div class="ag-icon">🔞</div>
+    <div class="ag-title">Age Verification Required</div>
+    <div class="ag-sub">Cart contains age-restricted items. Verify customer is 21+.</div>
+  </div>
+  <div class="ag-body">
+    <div class="sec" style="margin-top:0">Verification Method</div>
+    <div class="ag-methods">
+      <div class="ag-method sel" onclick="selectAgeMethod(this,'scan')">
+        <div class="ag-m-i">📸</div>
+        <div class="ag-m-l">Scan ID</div>
+      </div>
+      <div class="ag-method" onclick="selectAgeMethod(this,'manual')">
+        <div class="ag-m-i">📅</div>
+        <div class="ag-m-l">Enter DOB</div>
+      </div>
+      <div class="ag-method" onclick="selectAgeMethod(this,'visual')">
+        <div class="ag-m-i">👁️</div>
+        <div class="ag-m-l">Visual</div>
+      </div>
+    </div>
+
+    <!-- ID Scanner -->
+    <div id="ageMethodScan">
+      <div class="id-scan-area" id="idScanArea" onclick="simulateIdScan()">
+        <div class="id-scan-icon" id="idScanIcon">🪪</div>
+        <div class="id-scan-text" id="idScanText">Tap to simulate ID scan</div>
+      </div>
+    </div>
+
+    <!-- Manual DOB -->
+    <div id="ageMethodManual" style="display:none">
+      <div class="dob-row">
+        <input class="dob-input" id="dobMonth" type="text" placeholder="MM" maxlength="2" oninput="checkDob()">
+        <input class="dob-input" id="dobDay" type="text" placeholder="DD" maxlength="2" oninput="checkDob()">
+        <input class="dob-input" id="dobYear" type="text" placeholder="YYYY" maxlength="4" oninput="checkDob()">
+      </div>
+    </div>
+
+    <!-- Visual -->
+    <div id="ageMethodVisual" style="display:none">
+      <div class="fcard" style="text-align:center">
+        <div style="font-size:32px;margin-bottom:8px">👤</div>
+        <div style="font-size:12px;color:var(--t2);margin-bottom:12px">Cashier visually confirms the customer appears 21 or older. This method is the least secure and should only be used when ID is unavailable.</div>
+        <div class="btn-row">
+          <button class="btn btn-sm btn-green" onclick="showAgeResult(true,'Visual confirmation by cashier')">✓ Looks 21+</button>
+          <button class="btn btn-sm btn-red" onclick="showAgeResult(false,'Customer appears under 21')">✕ Under 21</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result -->
+    <div id="ageResult" style="display:none"></div>
+
+    <div class="sec">Logged On Receipt & Transaction</div>
+    <div class="fcard">
+      <div class="fcard-d" style="font-family:'DM Mono',monospace;font-size:10px;line-height:2;color:var(--t2)">
+        ageVerified: <span style="color:var(--green)">true</span><br>
+        verificationMethod: <span style="color:var(--amber)">"ID_SCAN"</span><br>
+        verifiedAt: <span style="color:var(--text)">2026-03-24T14:32:00Z</span><br>
+        cashierId: <span style="color:var(--blue)">"usr_marcus_t"</span>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       2. SPLIT PAYMENT
+       ═══════════════════════════════════════ -->
+
+  <div class="panel" id="panel-split">
+    <div class="sec">Order Total</div>
+    <div class="split-viz">
+      <div class="split-total">
+        <div class="split-total-label">Total Due</div>
+        <div class="split-total-amount">$414.81</div>
+      </div>
+
+```
+  <div class="split-bar" id="splitBar">
+    <div class="split-bar-seg" style="width:60%;background:var(--blue)"></div>
+    <div class="split-bar-seg" style="width:40%;background:var(--green)"></div>
+  </div>
+
+  <div class="split-methods" id="splitMethods">
+    <div class="split-method">
+      <div class="sm-color" style="background:var(--blue)"></div>
+      <div class="sm-info">
+        <div class="sm-type">💳 Visa ****4242 <span class="sm-badge" style="background:var(--blue-s);color:var(--blue)">PRIMARY</span></div>
+      </div>
+      <input class="sm-input" id="split1" type="text" value="$248.89" oninput="recalcSplit()">
+    </div>
+
+    <div class="split-method">
+      <div class="sm-color" style="background:var(--green)"></div>
+      <div class="sm-info">
+        <div class="sm-type">💵 Cash</div>
+      </div>
+      <input class="sm-input" id="split2" type="text" value="$165.92" oninput="recalcSplit()">
+      <button class="sm-remove" onclick="removeSplit(this)">✕</button>
+    </div>
+  </div>
+
+  <div class="split-remaining balanced" id="splitRemaining">✓ Balanced — $0.00 remaining</div>
+
+  <div class="add-split" onclick="addSplitMethod()">+ Add Payment Method</div>
+</div>
+
+<div class="sec">How Split Payment Works</div>
+<div class="fcard">
+  <div class="fcard-d">
+    The cashier taps "Split Payment" in the checkout modal. They can add 2–4 payment methods, assign amounts to each, and process them sequentially. Each method creates its own Stripe PaymentIntent (for cards) or records cash separately. The transaction stores an array of payment records linked to a single order.
+  </div>
+</div>
+
+<div class="sec">Supported Split Combinations</div>
+<div class="cache-grid">
+  <div class="cache-item"><div class="cache-i">💳💵</div><div class="cache-l">Card + Cash</div></div>
+  <div class="cache-item"><div class="cache-i">💳💳</div><div class="cache-l">Two Cards</div></div>
+  <div class="cache-item"><div class="cache-i">💳📱</div><div class="cache-l">Card + NFC</div></div>
+  <div class="cache-item"><div class="cache-i">💵💵💳</div><div class="cache-l">Multi-split</div></div>
+</div>
+
+<button class="btn btn-amber" onclick="showToast('All payments processed successfully!')">Process Split Payment</button>
+```
+
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       3. OFFLINE MODE
+       ═══════════════════════════════════════ -->
+
+  <div class="panel" id="panel-offline">
+    <div class="sec">Connection Status</div>
+    <div class="offline-status online" id="connStatus" onclick="toggleConnection()">
+      <div class="os-dot on" id="connDot"></div>
+      <span id="connText">Online — All systems connected</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--t3)">tap to toggle</span>
+    </div>
+
+```
+<div class="sec">Cached Data (Available Offline)</div>
+<div class="cache-grid">
+  <div class="cache-item">
+    <div class="cache-i">📦</div>
+    <div class="cache-l">Products</div>
+    <div class="cache-v">1,247</div>
+    <div class="cache-time">Synced 2m ago</div>
+  </div>
+  <div class="cache-item">
+    <div class="cache-i">👥</div>
+    <div class="cache-l">Customers</div>
+    <div class="cache-v">3,891</div>
+    <div class="cache-time">Synced 5m ago</div>
+  </div>
+  <div class="cache-item">
+    <div class="cache-i">💰</div>
+    <div class="cache-l">Tax Rate</div>
+    <div class="cache-v">9.75%</div>
+    <div class="cache-time">From store config</div>
+  </div>
+  <div class="cache-item">
+    <div class="cache-i">🏷️</div>
+    <div class="cache-l">Categories</div>
+    <div class="cache-v">12</div>
+    <div class="cache-time">Synced 5m ago</div>
+  </div>
+</div>
+
+<div class="sec">Sync Queue</div>
+<div class="sync-queue">
+  <div class="sq-header">
+    <span class="sq-title">Pending Transactions</span>
+    <span class="sq-count" id="sqCount">3</span>
+  </div>
+  <div id="sqItems">
+    <div class="sq-item">
+      <div class="sq-item-icon" style="background:var(--amber-g)">💳</div>
+      <div class="sq-item-info">
+        <div class="sq-item-title">Sale #0047 — $164.99</div>
+        <div class="sq-item-meta">Cash · 2:41 PM · Don Julio 1942</div>
+      </div>
+      <span class="sq-item-status sq-pending">PENDING</span>
+    </div>
+    <div class="sq-item">
+      <div class="sq-item-icon" style="background:var(--amber-g)">💳</div>
+      <div class="sq-item-info">
+        <div class="sq-item-title">Sale #0048 — $41.99</div>
+        <div class="sq-item-meta">Cash · 2:43 PM · EH Taylor</div>
+      </div>
+      <span class="sq-item-status sq-pending">PENDING</span>
+    </div>
+    <div class="sq-item">
+      <div class="sq-item-icon" style="background:var(--green-s)">📦</div>
+      <div class="sq-item-info">
+        <div class="sq-item-title">Stock Adjust — Buffalo Trace</div>
+        <div class="sq-item-meta">-1 unit · 2:44 PM</div>
+      </div>
+      <span class="sq-item-status sq-pending">PENDING</span>
+    </div>
+  </div>
+</div>
+
+<button class="btn btn-amber" id="syncBtn" onclick="simulateSync()">⬆ Sync Now (3 pending)</button>
+
+<div class="sec">Offline Architecture</div>
+<div class="flow">
+  <div class="flow-step">
+    <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+    <div class="flow-content">
+      <div class="flow-title">1. Service Worker Registers</div>
+      <div class="flow-desc">On first load, a service worker caches the app shell, product catalog, customer data, and tax config into IndexedDB.</div>
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+    <div class="flow-content">
+      <div class="flow-title">2. Connection Drops</div>
+      <div class="flow-desc">The app detects navigator.onLine === false. UI shows offline banner. POS remains fully functional using cached data.</div>
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+    <div class="flow-content">
+      <div class="flow-title">3. Cash-Only Sales Continue</div>
+      <div class="flow-desc">Card payments require network, so only cash is available offline. Transactions are stored in IndexedDB with a "pending_sync" status.</div>
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+    <div class="flow-content">
+      <div class="flow-title">4. Local Inventory Tracking</div>
+      <div class="flow-desc">Stock counts are decremented locally in IndexedDB. A sync delta log tracks every change to replay when back online.</div>
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="flow-line"><div class="flow-dot"></div></div>
+    <div class="flow-content">
+      <div class="flow-title">5. Auto-Sync on Reconnect</div>
+      <div class="flow-desc">When connection is restored, the sync queue replays all pending transactions to the server in order. Conflicts are resolved with server-wins for inventory, client-wins for transactions.</div>
+    </div>
+  </div>
+</div>
+
+<div class="sec">Offline Limitations</div>
+<div class="fcard">
+  <div class="fcard-d">
+    <strong style="color:var(--red)">Unavailable offline:</strong> Card/NFC payments, AI upsell suggestions, SMS sending, loyalty point redemption, real-time stock from other registers.<br><br>
+    <strong style="color:var(--green)">Available offline:</strong> Cash sales, barcode scanning, product search, cart management, customer lookup (cached), receipt printing (local), age verification (manual/visual only).
+  </div>
+</div>
+```
+
+  </div>
+</div>
+
+<script>
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('panel-' + name).classList.add('on');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ─── AGE VERIFICATION ───
+function selectAgeMethod(el, method) {
+  document.querySelectorAll('.ag-method').forEach(m => m.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('ageMethodScan').style.display = method === 'scan' ? 'block' : 'none';
+  document.getElementById('ageMethodManual').style.display = method === 'manual' ? 'block' : 'none';
+  document.getElementById('ageMethodVisual').style.display = method === 'visual' ? 'block' : 'none';
+  document.getElementById('ageResult').style.display = 'none';
+  // Reset scan area
+  const sa = document.getElementById('idScanArea');
+  sa.className = 'id-scan-area';
+  document.getElementById('idScanIcon').textContent = '🪪';
+  document.getElementById('idScanText').textContent = 'Tap to simulate ID scan';
+}
+
+function simulateIdScan() {
+  const area = document.getElementById('idScanArea');
+  const icon = document.getElementById('idScanIcon');
+  const text = document.getElementById('idScanText');
+
+  area.className = 'id-scan-area scanning';
+  icon.textContent = '⏳';
+  text.textContent = 'Scanning...';
+
+  setTimeout(() => {
+    area.className = 'id-scan-area verified';
+    icon.textContent = '✓';
+    text.textContent = 'ID Scanned — James Wilson, DOB 05/12/1990';
+    showAgeResult(true, 'ID Scan — Driver\'s License · DOB: 05/12/1990 · Age: 35');
+  }, 1500);
+}
+
+function checkDob() {
+  const m = document.getElementById('dobMonth').value;
+  const d = document.getElementById('dobDay').value;
+  const y = document.getElementById('dobYear').value;
+  if (m.length === 2 && d.length === 2 && y.length === 4) {
+    const dob = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+    const age = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    if (age >= 21) {
+      showAgeResult(true, `Manual DOB entry · ${m}/${d}/${y} · Age: ${age}`);
+    } else {
+      showAgeResult(false, `Customer is ${age} years old — must be 21+`);
+    }
+  }
+}
+
+function showAgeResult(pass, detail) {
+  const el = document.getElementById('ageResult');
+  el.style.display = 'block';
+  el.innerHTML = `<div class="av-result ${pass ? 'pass' : 'fail'}">
+    <span class="avr-icon">${pass ? '✅' : '🚫'}</span>
+    <div>
+      <div class="avr-text ${pass ? 'pass' : 'fail'}">${pass ? 'Verified — Sale may proceed' : 'DENIED — Sale blocked'}</div>
+      <div class="avr-sub">${detail}</div>
+    </div>
+  </div>`;
+}
+
+// ─── SPLIT PAYMENT ───
+const TOTAL = 414.81;
+const COLORS = ['var(--blue)', 'var(--green)', 'var(--purple)', 'var(--amber)'];
+const METHODS = [
+  { icon: '💳', label: 'Visa ****4242' },
+  { icon: '💵', label: 'Cash' },
+  { icon: '📱', label: 'Apple Pay' },
+  { icon: '💳', label: 'Amex ****1001' },
+];
+
+function recalcSplit() {
+  const inputs = document.querySelectorAll('.sm-input');
+  let sum = 0;
+  inputs.forEach(inp => { sum += parseFloat(inp.value.replace(/[^0-9.]/g, '')) || 0; });
+  const remaining = TOTAL - sum;
+  const el = document.getElementById('splitRemaining');
+  if (Math.abs(remaining) < 0.01) {
+    el.className = 'split-remaining balanced';
+    el.textContent = '✓ Balanced — $0.00 remaining';
+  } else {
+    el.className = 'split-remaining unbalanced';
+    el.textContent = remaining > 0 ? `$${remaining.toFixed(2)} remaining` : `$${Math.abs(remaining).toFixed(2)} over — adjust amounts`;
+  }
+  updateSplitBar();
+}
+
+function updateSplitBar() {
+  const inputs = document.querySelectorAll('.sm-input');
+  const bar = document.getElementById('splitBar');
+  bar.innerHTML = '';
+  inputs.forEach((inp, i) => {
+    const val = parseFloat(inp.value.replace(/[^0-9.]/g, '')) || 0;
+    const pct = (val / TOTAL) * 100;
+    const seg = document.createElement('div');
+    seg.className = 'split-bar-seg';
+    seg.style.width = pct + '%';
+    seg.style.background = COLORS[i % COLORS.length];
+    bar.appendChild(seg);
+  });
+}
+
+function addSplitMethod() {
+  const methods = document.getElementById('splitMethods');
+  const count = methods.children.length;
+  if (count >= 4) { showToast('Maximum 4 payment methods'); return; }
+  const m = METHODS[count];
+  const div = document.createElement('div');
+  div.className = 'split-method';
+  div.innerHTML = `
+    <div class="sm-color" style="background:${COLORS[count]}"></div>
+    <div class="sm-info"><div class="sm-type">${m.icon} ${m.label}</div></div>
+    <input class="sm-input" type="text" value="$0.00" oninput="recalcSplit()">
+    <button class="sm-remove" onclick="removeSplit(this)">✕</button>`;
+  methods.appendChild(div);
+  recalcSplit();
+}
+
+function removeSplit(btn) {
+  const method = btn.closest('.split-method');
+  if (document.querySelectorAll('.split-method').length <= 1) { showToast('Need at least one payment method'); return; }
+  method.remove();
+  recalcSplit();
+}
+
+// ─── OFFLINE MODE ───
+let isOnline = true;
+
+function toggleConnection() {
+  isOnline = !isOnline;
+  const el = document.getElementById('connStatus');
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  if (isOnline) {
+    el.className = 'offline-status online';
+    dot.className = 'os-dot on';
+    text.textContent = 'Online — All systems connected';
+  } else {
+    el.className = 'offline-status offline';
+    dot.className = 'os-dot off';
+    text.textContent = 'Offline — Cash only · Sync queue active';
+  }
+}
+
+function simulateSync() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Syncing...';
+
+  const items = document.querySelectorAll('.sq-item-status');
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i < items.length) {
+      items[i].textContent = 'SYNCED';
+      items[i].className = 'sq-item-status sq-synced';
+      i++;
+    } else {
+      clearInterval(interval);
+      document.getElementById('sqCount').textContent = '0';
+      btn.textContent = '✓ All synced';
+      btn.className = 'btn btn-green';
+      showToast('3 transactions synced successfully');
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '⬆ Sync Now (0 pending)';
+        btn.className = 'btn btn-amber';
+      }, 2000);
+    }
+  }, 600);
+}
+</script>
+
+</body>
+</html>
