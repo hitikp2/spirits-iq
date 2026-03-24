@@ -1155,7 +1155,7 @@ export default function POSPage() {
 
         {/* Totals + Charge button — always visible when cart has items */}
         {cart.length > 0 && !saleSuccess && (
-          <div className="px-4 pt-1 pb-20 space-y-1.5">
+          <div className="px-4 pt-1 space-y-1.5" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
             <div className="space-y-0.5">
               <div className="flex justify-between text-[10px] font-body">
                 <span className="text-surface-400">Subtotal</span>

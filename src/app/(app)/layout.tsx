@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
@@ -56,6 +56,25 @@ export default function DashboardLayout({
   }, []);
 
   const activeItem = NAV_ITEMS.find((n) => pathname.startsWith(n.href));
+  const isPos = pathname === "/pos";
+
+  // ─── Swipe navigation for POS ───
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isPos) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    // Only trigger on horizontal swipes (>100px, more horizontal than vertical)
+    if (Math.abs(dx) > 100 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx > 0) router.push("/dashboard");   // swipe right → dashboard
+      else router.push("/inventory");            // swipe left → inventory
+    }
+  }, [isPos, router]);
 
   // ─── MOBILE LAYOUT ──────────────────────────────────
   if (isMobile) {
@@ -194,46 +213,53 @@ export default function DashboardLayout({
         )}
 
         {/* Content */}
-        <main className={cn(
-          "flex-1 overflow-y-auto overscroll-contain",
-          pathname === "/pos" ? "px-0 py-0 z-50" : "px-4 py-4"
-        )} style={{ WebkitOverflowScrolling: "touch" as any }}>{children}</main>
+        <main
+          className={cn(
+            "flex-1 overflow-y-auto overscroll-contain",
+            isPos ? "px-0 py-0" : "px-4 py-4"
+          )}
+          style={{ WebkitOverflowScrolling: "touch" as any }}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >{children}</main>
 
-        {/* Bottom Tab Bar */}
-        <nav className="flex-shrink-0 z-30 glass border-t border-surface-600">
-          <div className="flex justify-around items-center py-2 pb-5">
-            {NAV_ITEMS.slice(0, 6).map((item) => {
-              const Icon = item.icon;
-              const active = pathname.startsWith(item.href);
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => router.push(item.href)}
-                  className="flex flex-col items-center gap-1 px-3 py-1.5"
-                >
-                  <Icon
-                    size={20}
-                    className={cn(
-                      "transition-colors",
-                      active ? "text-brand" : "text-surface-400"
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "font-mono text-[9px] tracking-wide",
-                      active ? "text-brand font-semibold" : "text-surface-400"
-                    )}
+        {/* Bottom Tab Bar — hidden on POS for full-screen checkout */}
+        {!isPos && (
+          <nav className="flex-shrink-0 z-30 glass border-t border-surface-600">
+            <div className="flex justify-around items-center py-2 pb-5">
+              {NAV_ITEMS.slice(0, 6).map((item) => {
+                const Icon = item.icon;
+                const active = pathname.startsWith(item.href);
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => router.push(item.href)}
+                    className="flex flex-col items-center gap-1 px-3 py-1.5"
                   >
-                    {item.label.split(" ")[0]}
-                  </span>
-                  {active && (
-                    <div className="w-1 h-1 rounded-full bg-brand" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
+                    <Icon
+                      size={20}
+                      className={cn(
+                        "transition-colors",
+                        active ? "text-brand" : "text-surface-400"
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "font-mono text-[9px] tracking-wide",
+                        active ? "text-brand font-semibold" : "text-surface-400"
+                      )}
+                    >
+                      {item.label.split(" ")[0]}
+                    </span>
+                    {active && (
+                      <div className="w-1 h-1 rounded-full bg-brand" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        )}
       </div>
     );
   }
