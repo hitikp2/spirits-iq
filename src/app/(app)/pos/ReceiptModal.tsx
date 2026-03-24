@@ -57,6 +57,7 @@ export default function ReceiptModal({
   const [smsPhone, setSmsPhone] = useState("");
   const [smsName, setSmsName] = useState("");
   const [showPhoneInput, setShowPhoneInput] = useState(false);
+  const [sendAsImage, setSendAsImage] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
   const earnPts = Math.round(total);
 
@@ -98,18 +99,20 @@ export default function ReceiptModal({
     setShowPhoneInput(true);
   }, [customerPhone, customerName, smsPhone, smsName]);
 
-  // Capture receipt as image and send via MMS
+  // Send receipt via SMS (text) or MMS (image)
   const handleSendSms = useCallback(async () => {
     if (!smsPhone.trim()) {
       toast.error("Enter a phone number");
       return;
     }
 
+    const greeting = smsName.trim() ? `Hi ${smsName.trim()}! ` : "";
     setSmsSending(true);
     try {
-      // Step 1: Capture receipt DOM as PNG
       let mediaUrl: string | undefined;
-      if (receiptRef.current) {
+
+      if (sendAsImage && receiptRef.current) {
+        // Capture receipt DOM as PNG for MMS
         const canvas = await html2canvas(receiptRef.current, {
           backgroundColor: "#1a1a1a",
           scale: 2,
@@ -118,7 +121,6 @@ export default function ReceiptModal({
         });
         const imageBase64 = canvas.toDataURL("image/png");
 
-        // Step 2: Upload image to get a public URL
         const uploadRes = await fetch("/api/receipt-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -130,9 +132,10 @@ export default function ReceiptModal({
         }
       }
 
-      // Step 3: Send via MMS (image) with optional text caption
-      const greeting = smsName.trim() ? `Hi ${smsName.trim()}! ` : "";
-      const caption = greeting + `Here's your receipt for order #${orderNumber}. Total: ${formatCurrency(total)}. Thank you!`;
+      // Text: full receipt breakdown. Image: short caption only.
+      const message = sendAsImage
+        ? greeting + `Here's your receipt for order #${orderNumber}. Total: ${formatCurrency(total)}. Thank you!`
+        : greeting + receiptText;
 
       const res = await fetch("/api/sms", {
         method: "POST",
@@ -140,8 +143,8 @@ export default function ReceiptModal({
         body: JSON.stringify({
           action: "send-direct",
           phone: smsPhone.trim(),
-          message: caption,
-          mediaUrl,
+          message,
+          ...(mediaUrl && { mediaUrl }),
           storeId,
         }),
       });
@@ -159,7 +162,7 @@ export default function ReceiptModal({
     } finally {
       setSmsSending(false);
     }
-  }, [smsPhone, smsName, storeId, orderNumber, total]);
+  }, [smsPhone, smsName, sendAsImage, receiptText, storeId, orderNumber, total]);
 
   if (!open) return null;
 
@@ -275,13 +278,30 @@ export default function ReceiptModal({
               autoFocus
             />
 
+            {/* Image toggle */}
+            <button
+              onClick={() => setSendAsImage(!sendAsImage)}
+              className="w-full flex items-center justify-between px-3 py-2 mb-3 rounded-xl bg-surface-800 border border-surface-700"
+            >
+              <span className="text-xs text-surface-300 font-body">Send as image</span>
+              <div className={cn(
+                "w-9 h-5 rounded-full transition-colors flex items-center px-0.5",
+                sendAsImage ? "bg-brand" : "bg-surface-600"
+              )}>
+                <div className={cn(
+                  "w-4 h-4 rounded-full bg-white transition-transform",
+                  sendAsImage ? "translate-x-4" : "translate-x-0"
+                )} />
+              </div>
+            </button>
+
             {/* Send button */}
             <button
               onClick={handleSendSms}
               disabled={smsSending || !smsPhone.trim()}
               className="w-full py-3 rounded-xl bg-brand text-surface-950 text-sm font-bold font-display flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.97] transition-transform"
             >
-              {smsSending ? "Sending..." : `💬 Send to ${smsPhone || "..."}`}
+              {smsSending ? "Sending..." : sendAsImage ? `📷 MMS to ${smsPhone || "..."}` : `💬 SMS to ${smsPhone || "..."}`}
             </button>
           </div>
         )}
