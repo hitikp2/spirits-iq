@@ -70,19 +70,41 @@ export async function POST(request: NextRequest) {
 
     if (action === "create") {
       const {
-        storeId, sku, barcode, name, brand, description, categoryId,
+        storeId, sku, barcode, name, brand, description,
         costPrice, retailPrice, quantity, reorderPoint, reorderQuantity,
         size, abv, vintage, region, imageUrl, tags, supplierId, isAgeRestricted,
       } = body;
+      let { categoryId } = body;
+
+      if (!storeId || !name || !sku) {
+        return NextResponse.json(
+          { success: false, error: "storeId, name, and sku are required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+
+      // If no category selected, find or create a default "General" category
+      if (!categoryId) {
+        let defaultCat = await db.category.findUnique({
+          where: { storeId_slug: { storeId, slug: "general" } },
+        });
+        if (!defaultCat) {
+          defaultCat = await db.category.create({
+            data: { storeId, name: "General", slug: "general", icon: "📦", sortOrder: 99 },
+          });
+        }
+        categoryId = defaultCat.id;
+      }
 
       const product = await db.product.create({
         data: {
           storeId, sku, barcode, name, brand, description, categoryId,
-          costPrice, retailPrice, quantity: quantity || 0,
+          costPrice: costPrice || 0, retailPrice: retailPrice || 0,
+          quantity: quantity || 0,
           reorderPoint: reorderPoint || 5, reorderQuantity: reorderQuantity || 12,
           size, abv, vintage, region, imageUrl,
           tags: tags || [], supplierId, isAgeRestricted: isAgeRestricted ?? true,
-          margin: retailPrice > 0 ? ((retailPrice - costPrice) / retailPrice) * 100 : 0,
+          margin: retailPrice > 0 ? ((retailPrice - (costPrice || 0)) / retailPrice) * 100 : 0,
         },
         include: { category: true, supplier: true },
       });

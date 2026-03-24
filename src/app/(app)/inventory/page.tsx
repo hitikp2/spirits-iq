@@ -57,6 +57,7 @@ export default function InventoryPage() {
   const [adjustReason, setAdjustReason] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState("");
   const [newProduct, setNewProduct] = useState({
     name: "", brand: "", sku: "", categoryId: "",
     costPrice: "", retailPrice: "", quantity: "", reorderPoint: "5",
@@ -131,6 +132,7 @@ export default function InventoryPage() {
     e.preventDefault();
     if (!newProduct.name || !newProduct.sku || !newProduct.retailPrice) return;
     setAddLoading(true);
+    setAddError("");
     try {
       const res = await fetch("/api/inventory", {
         method: "POST",
@@ -154,11 +156,15 @@ export default function InventoryPage() {
       const json = await res.json();
       if (json.success) {
         setShowAddForm(false);
+        setAddError("");
         setNewProduct({ name: "", brand: "", sku: "", categoryId: "", costPrice: "", retailPrice: "", quantity: "", reorderPoint: "5", size: "", abv: "", tags: "" });
-        // Trigger refetch
         window.location.reload();
+      } else {
+        setAddError(json.error || "Failed to add product. Please try again.");
       }
-    } catch {}
+    } catch (err: any) {
+      setAddError(err.message || "Network error. Please try again.");
+    }
     setAddLoading(false);
   }
 
@@ -239,6 +245,16 @@ export default function InventoryPage() {
                 className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
+              <label className="block font-body text-xs text-surface-400 mb-1">Category</label>
+              <select value={newProduct.categoryId} onChange={(e) => setNewProduct({ ...newProduct, categoryId: e.target.value })}
+                className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-body text-sm focus:outline-none focus:border-brand">
+                <option value="">Auto (General)</option>
+                {Array.from(new Map(productList.map((p) => [p.categoryId, p.category])).entries()).map(([id, cat]) => (
+                  <option key={id} value={id}>{cat.icon} {cat.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block font-body text-xs text-surface-400 mb-1">Cost Price</label>
               <input type="number" step="0.01" min="0" value={newProduct.costPrice} onChange={(e) => setNewProduct({ ...newProduct, costPrice: e.target.value })}
                 className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-mono text-sm focus:outline-none focus:border-brand" />
@@ -268,6 +284,11 @@ export default function InventoryPage() {
               <input type="text" value={newProduct.tags} onChange={(e) => setNewProduct({ ...newProduct, tags: e.target.value })} placeholder="premium, staff-pick"
                 className="w-full px-3 py-2 bg-surface-800 border border-surface-600 rounded-lg text-surface-100 font-body text-sm focus:outline-none focus:border-brand" />
             </div>
+            {addError && (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <p className="font-body text-xs text-danger bg-danger/10 border border-danger/30 rounded-lg px-3 py-2">{addError}</p>
+              </div>
+            )}
             <div className="sm:col-span-2 lg:col-span-3 flex justify-end gap-3">
               <button type="button" onClick={() => setShowAddForm(false)}
                 className="px-5 py-2.5 rounded-xl font-display text-sm font-semibold bg-surface-800 text-surface-300 hover:text-surface-100 transition-colors">
