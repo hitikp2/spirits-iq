@@ -7,6 +7,7 @@ import {
   useInventoryAlerts,
   useStockAdjust,
   useAiReorder,
+  useCreateProduct,
 } from "@/hooks/useApi";
 import { formatCurrency, cn, getStockStatus, calcMargin } from "@/lib/utils";
 
@@ -56,7 +57,6 @@ export default function InventoryPage() {
   const [adjustType, setAdjustType] = useState<"add" | "remove" | "set">("add");
   const [adjustReason, setAdjustReason] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState("");
   const [newProduct, setNewProduct] = useState({
     name: "", brand: "", sku: "", categoryId: "",
@@ -68,6 +68,7 @@ export default function InventoryPage() {
   const { data: alerts } = useInventoryAlerts(storeId);
   const stockAdjust = useStockAdjust();
   const aiReorder = useAiReorder();
+  const createProduct = useCreateProduct();
 
   const productList = (products as Product[]) || [];
   const alertList = (alerts as Alert[]) || [];
@@ -128,44 +129,39 @@ export default function InventoryPage() {
     aiReorder.mutate({ storeId, performedBy: userId });
   }
 
-  async function handleAddProduct(e: React.FormEvent) {
+  function handleAddProduct(e: React.FormEvent) {
     e.preventDefault();
-    if (!newProduct.name || !newProduct.sku || !newProduct.retailPrice) return;
-    setAddLoading(true);
-    setAddError("");
-    try {
-      const res = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          storeId,
-          name: newProduct.name,
-          brand: newProduct.brand,
-          sku: newProduct.sku,
-          categoryId: newProduct.categoryId || undefined,
-          costPrice: parseFloat(newProduct.costPrice) || 0,
-          retailPrice: parseFloat(newProduct.retailPrice) || 0,
-          quantity: parseInt(newProduct.quantity) || 0,
-          reorderPoint: parseInt(newProduct.reorderPoint) || 5,
-          size: newProduct.size || undefined,
-          abv: newProduct.abv ? parseFloat(newProduct.abv) : undefined,
-          tags: newProduct.tags ? newProduct.tags.split(",").map((t: string) => t.trim()) : [],
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setShowAddForm(false);
-        setAddError("");
-        setNewProduct({ name: "", brand: "", sku: "", categoryId: "", costPrice: "", retailPrice: "", quantity: "", reorderPoint: "5", size: "", abv: "", tags: "" });
-        window.location.reload();
-      } else {
-        setAddError(json.error || "Failed to add product. Please try again.");
-      }
-    } catch (err: any) {
-      setAddError(err.message || "Network error. Please try again.");
+    if (!newProduct.name || !newProduct.sku || !newProduct.retailPrice) {
+      setAddError("Name, SKU, and Retail Price are required.");
+      return;
     }
-    setAddLoading(false);
+    setAddError("");
+    createProduct.mutate(
+      {
+        storeId,
+        name: newProduct.name,
+        brand: newProduct.brand || undefined,
+        sku: newProduct.sku,
+        categoryId: newProduct.categoryId || undefined,
+        costPrice: parseFloat(newProduct.costPrice) || 0,
+        retailPrice: parseFloat(newProduct.retailPrice) || 0,
+        quantity: parseInt(newProduct.quantity) || 0,
+        reorderPoint: parseInt(newProduct.reorderPoint) || 5,
+        size: newProduct.size || undefined,
+        abv: newProduct.abv ? parseFloat(newProduct.abv) : undefined,
+        tags: newProduct.tags ? newProduct.tags.split(",").map((t: string) => t.trim()) : [],
+      },
+      {
+        onSuccess: () => {
+          setShowAddForm(false);
+          setAddError("");
+          setNewProduct({ name: "", brand: "", sku: "", categoryId: "", costPrice: "", retailPrice: "", quantity: "", reorderPoint: "5", size: "", abv: "", tags: "" });
+        },
+        onError: (err: Error) => {
+          setAddError(err.message || "Failed to add product. Please try again.");
+        },
+      }
+    );
   }
 
   const statusColors: Record<string, string> = {
@@ -294,9 +290,9 @@ export default function InventoryPage() {
                 className="px-5 py-2.5 rounded-xl font-display text-sm font-semibold bg-surface-800 text-surface-300 hover:text-surface-100 transition-colors">
                 Cancel
               </button>
-              <button type="submit" disabled={addLoading}
+              <button type="submit" disabled={createProduct.isPending}
                 className="px-5 py-2.5 rounded-xl font-display text-sm font-semibold bg-brand text-surface-950 hover:brightness-110 disabled:opacity-50 transition-all">
-                {addLoading ? "Adding..." : "Add Product"}
+                {createProduct.isPending ? "Adding..." : "Add Product"}
               </button>
             </div>
           </form>

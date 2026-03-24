@@ -480,6 +480,11 @@ export default function POSPage() {
 
       const totalCents = Math.round(total * 100);
 
+      if (totalCents < 50) {
+        setPaymentError("Stripe requires a minimum charge of $0.50. Use Cash for smaller amounts.");
+        return;
+      }
+
       try {
         // Create PaymentIntent
         const res = await fetch("/api/pos", {

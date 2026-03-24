@@ -76,6 +76,18 @@ export function useAiReorder() {
   });
 }
 
+export function useCreateProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      poster(`${BASE}/inventory`, { action: "create", ...body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      qc.invalidateQueries({ queryKey: ["inventory-alerts"] });
+    },
+  });
+}
+
 // ─── POS ─────────────────────────────────────────────────
 export function useProcessSale() {
   const qc = useQueryClient();

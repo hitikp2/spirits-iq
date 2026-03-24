@@ -69,8 +69,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "create") {
+      const storeId = request.headers.get("x-store-id") || body.storeId;
       const {
-        storeId, sku, barcode, name, brand, description,
+        sku, barcode, name, brand, description,
         costPrice, retailPrice, quantity, reorderPoint, reorderQuantity,
         size, abv, vintage, region, imageUrl, tags, supplierId, isAgeRestricted,
       } = body;
