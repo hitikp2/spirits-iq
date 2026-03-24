@@ -194,7 +194,10 @@ export default function DashboardLayout({
         )}
 
         {/* Content */}
-        <main className="px-4 py-4 pb-24">{children}</main>
+        <main className={cn(
+          "pb-24",
+          pathname === "/pos" ? "px-0 py-0" : "px-4 py-4"
+        )}>{children}</main>
 
         {/* Bottom Tab Bar */}
         <nav className="fixed bottom-0 inset-x-0 z-40 glass border-t border-surface-600">
@@ -391,7 +394,7 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <div className="p-8">{children}</div>
+        <div className={pathname === "/pos" ? "p-0" : "p-8"}>{children}</div>
       </main>
     </div>
   );
