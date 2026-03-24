@@ -52,6 +52,7 @@ export default function ReceiptModal({
   const [view, setView] = useState<"digital" | "print">("digital");
   const [smsSending, setSmsSending] = useState(false);
   const [smsPhone, setSmsPhone] = useState("");
+  const [smsName, setSmsName] = useState("");
   const [showPhoneInput, setShowPhoneInput] = useState(false);
   const earnPts = Math.round(total);
 
@@ -86,60 +87,49 @@ export default function ReceiptModal({
     return lines.join("\n");
   }, [orderNumber, date, time, items, subtotal, tax, total, payLabel]);
 
-  // Send SMS receipt
+  // Open SMS dialog — always show phone pad so cashier can enter/confirm number
+  const handleSmsClick = useCallback(() => {
+    setShowPhoneInput(true);
+  }, []);
+
+  // Actually send SMS receipt
   const handleSendSms = useCallback(async () => {
-    if (!customerId && !smsPhone.trim()) {
-      setShowPhoneInput(true);
+    if (!smsPhone.trim()) {
+      toast.error("Enter a phone number");
       return;
     }
 
+    // Prepend name greeting if provided
+    const greeting = smsName.trim() ? `Hi ${smsName.trim()}! ` : "";
+    const fullMessage = greeting + receiptText;
+
     setSmsSending(true);
     try {
-      if (customerId) {
-        // Send via customer ID (already in system)
-        const res = await fetch("/api/sms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "send",
-            customerId,
-            message: receiptText,
-          }),
-        });
-        const json = await res.json();
-        if (json.success) {
-          toast.success("Receipt sent via SMS");
-          setShowPhoneInput(false);
-        } else {
-          toast.error(json.error || "Failed to send SMS");
-        }
-      } else if (smsPhone.trim()) {
-        // Send directly to a phone number via Twilio
-        const res = await fetch("/api/sms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "send-direct",
-            phone: smsPhone.trim(),
-            message: receiptText,
-            storeId,
-          }),
-        });
-        const json = await res.json();
-        if (json.success) {
-          toast.success("Receipt sent via SMS");
-          setShowPhoneInput(false);
-          setSmsPhone("");
-        } else {
-          toast.error(json.error || "Failed to send SMS");
-        }
+      const res = await fetch("/api/sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send-direct",
+          phone: smsPhone.trim(),
+          message: fullMessage,
+          storeId,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(`Receipt sent to ${smsPhone.trim()}`);
+        setShowPhoneInput(false);
+        setSmsPhone("");
+        setSmsName("");
+      } else {
+        toast.error(json.error || "Failed to send SMS");
       }
     } catch {
       toast.error("Network error sending SMS");
     } finally {
       setSmsSending(false);
     }
-  }, [customerId, smsPhone, receiptText, storeId]);
+  }, [smsPhone, smsName, receiptText, storeId]);
 
   if (!open) return null;
 
@@ -219,41 +209,74 @@ export default function ReceiptModal({
           )}
         </div>
 
-        {/* Phone input for SMS (when no customer linked) */}
-        {showPhoneInput && !customerId && (
-          <div className="px-4 py-2 border-t border-surface-700 flex-shrink-0">
-            <div className="flex gap-2 items-center">
-              <input
-                type="tel"
-                inputMode="tel"
-                placeholder="Phone number..."
-                value={smsPhone}
-                onChange={(e) => setSmsPhone(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && smsPhone.trim() && handleSendSms()}
-                className="flex-1 px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-surface-100 font-mono text-xs placeholder:text-surface-500 focus:outline-none focus:border-brand"
-                autoFocus
-              />
+        {/* SMS Phone Pad Panel */}
+        {showPhoneInput && (
+          <div className="px-4 py-3 border-t border-surface-700 flex-shrink-0 bg-surface-900">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-surface-100 font-display">Send Receipt via SMS</span>
               <button
-                onClick={handleSendSms}
-                disabled={smsSending || !smsPhone.trim()}
-                className="px-4 py-2 rounded-lg bg-brand text-surface-950 font-display text-xs font-bold disabled:opacity-50 active:scale-95 transition-transform"
-              >
-                {smsSending ? "..." : "Send"}
-              </button>
-              <button
-                onClick={() => { setShowPhoneInput(false); setSmsPhone(""); }}
-                className="px-2 py-2 rounded-lg text-surface-400 text-xs hover:text-surface-100"
+                onClick={() => { setShowPhoneInput(false); setSmsPhone(""); setSmsName(""); }}
+                className="w-6 h-6 rounded-full bg-surface-800 border border-surface-700 text-surface-400 flex items-center justify-center text-[10px] active:scale-90 transition-transform"
               >
                 ✕
               </button>
             </div>
+
+            {/* Name input */}
+            <input
+              type="text"
+              placeholder="Customer name (optional)"
+              value={smsName}
+              onChange={(e) => setSmsName(e.target.value)}
+              className="w-full px-3 py-2.5 mb-2 bg-surface-800 border border-surface-700 rounded-xl text-surface-100 text-sm font-body placeholder:text-surface-500 focus:outline-none focus:border-brand transition-colors"
+            />
+
+            {/* Phone display */}
+            <div className="w-full px-3 py-3 mb-3 bg-surface-800 border border-surface-700 rounded-xl text-center">
+              <span className="font-mono text-xl text-surface-100 tracking-wider">
+                {smsPhone || <span className="text-surface-500">Enter phone number</span>}
+              </span>
+            </div>
+
+            {/* Number pad */}
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0", "⌫"].map((key) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    if (key === "⌫") {
+                      setSmsPhone((p) => p.slice(0, -1));
+                    } else {
+                      setSmsPhone((p) => p + key);
+                    }
+                  }}
+                  className={cn(
+                    "py-3 rounded-xl text-base font-bold font-mono transition-all active:scale-[0.92]",
+                    key === "⌫"
+                      ? "bg-danger/10 text-danger border border-danger/20"
+                      : "bg-surface-800 border border-surface-700 text-surface-100 hover:bg-surface-700"
+                  )}
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+
+            {/* Send button */}
+            <button
+              onClick={handleSendSms}
+              disabled={smsSending || !smsPhone.trim()}
+              className="w-full py-3 rounded-xl bg-brand text-surface-950 text-sm font-bold font-display flex items-center justify-center gap-2 disabled:opacity-40 active:scale-[0.97] transition-transform"
+            >
+              {smsSending ? "Sending..." : `💬 Send to ${smsPhone || "..."}`}
+            </button>
           </div>
         )}
 
         {/* Bottom actions */}
         <div className="px-4 pt-3 pb-6 border-t border-surface-700 flex-shrink-0 flex gap-2" style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom, 1.5rem))" }}>
           <button
-            onClick={handleSendSms}
+            onClick={handleSmsClick}
             disabled={smsSending}
             className="flex-1 py-3 rounded-xl border border-surface-700 bg-surface-800 text-surface-100 text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-[0.96] transition-transform disabled:opacity-50"
           >
