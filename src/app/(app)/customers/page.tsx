@@ -75,50 +75,54 @@ export default function CustomersPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-surface-100">Customers</h1>
-        <p className="font-body text-sm text-surface-400 mt-1">
-          {meta?.total ? `${meta.total} customers` : "Manage your customer database"}
-        </p>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1">
-          <input
-            type="text"
-            placeholder="Search by name, phone, or email..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="w-full px-4 py-2.5 rounded-xl bg-surface-900 border border-surface-600 font-body text-sm text-surface-100 placeholder:text-surface-500 focus:border-brand focus:outline-none"
-          />
+    <div className="flex flex-col h-full -my-4 -mx-4 sm:-my-0 sm:-mx-0">
+      {/* Sticky header: title + search + filters */}
+      <div className="flex-shrink-0 px-4 pt-4 pb-3 sm:px-0 sm:pt-0 bg-surface-950 space-y-4">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-surface-100">Customers</h1>
+          <p className="font-body text-sm text-surface-400 mt-1">
+            {meta?.total ? `${meta.total} customers` : "Manage your customer database"}
+          </p>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {TIERS.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => {
-                setTier(t.value);
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="Search by name, phone, or email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
                 setPage(1);
               }}
-              className={cn(
-                "px-3 py-2 rounded-xl font-body text-xs font-medium whitespace-nowrap transition-colors",
-                tier === t.value
-                  ? "bg-brand text-surface-950"
-                  : "bg-surface-900 text-surface-300 hover:text-surface-100 border border-surface-600"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+              className="w-full px-4 py-2.5 rounded-xl bg-surface-900 border border-surface-600 font-body text-sm text-surface-100 placeholder:text-surface-500 focus:border-brand focus:outline-none"
+            />
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {TIERS.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => {
+                  setTier(t.value);
+                  setPage(1);
+                }}
+                className={cn(
+                  "px-3 py-2 rounded-xl font-body text-xs font-medium whitespace-nowrap transition-colors",
+                  tier === t.value
+                    ? "bg-brand text-surface-950"
+                    : "bg-surface-900 text-surface-300 hover:text-surface-100 border border-surface-600"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Customer List */}
+      {/* Scrollable customer list */}
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 sm:px-0 pb-4" style={{ WebkitOverflowScrolling: "touch" as any }}>
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -225,6 +229,7 @@ export default function CustomersPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* Customer Detail Modal */}
       {selectedCustomer && (
