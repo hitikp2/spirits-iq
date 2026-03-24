@@ -15,12 +15,12 @@
  * error message telling the developer exactly what to do.
  *
  * Environment variable required:
- *   STRIPE_SECRET_KEY — Your platform's Stripe secret key (starts with sk_test_ or sk_live_)
+ *   STRIPE_SECRET_KEY — Your platform's Stripe secret key (starts with sk_live_)
  *
  * To get your key:
  *   1. Go to https://dashboard.stripe.com/apikeys
  *   2. Copy your "Secret key"
- *   3. Add it to your .env file as STRIPE_SECRET_KEY=sk_test_...
+ *   3. Add it to your .env file as STRIPE_SECRET_KEY=sk_live_...
  */
 
 import Stripe from "stripe";
@@ -40,7 +40,7 @@ function getStripeClient(): Stripe {
     throw new Error(
       "[Stripe] STRIPE_SECRET_KEY is not set.\n" +
       "Please add your Stripe secret key to your .env file:\n" +
-      "  STRIPE_SECRET_KEY=sk_test_your_key_here\n\n" +
+      "  STRIPE_SECRET_KEY=sk_live_your_key_here\n\n" +
       "You can find your key at: https://dashboard.stripe.com/apikeys"
     );
   }
