@@ -31,10 +31,13 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
   const [manualEntry, setManualEntry] = useState(false);
   const [manualValue, setManualValue] = useState("");
 
+  const [scannedCode, setScannedCode] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<any>(null);
-  const rafRef = useRef<number>(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanningRef = useRef(false);
 
   // Match a scanned barcode/SKU to a product
@@ -81,35 +84,50 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
           await videoRef.current.play();
         }
 
-        // Detection loop
-        const detect = async () => {
-          if (!scanningRef.current || !videoRef.current || videoRef.current.readyState < 2) {
-            if (scanningRef.current) rafRef.current = requestAnimationFrame(detect);
-            return;
-          }
+        // Create offscreen canvas for frame capture (needed for polyfill on iOS)
+        const canvas = document.createElement("canvas");
+        canvasRef.current = canvas;
 
+        // Detection loop using setInterval (more reliable than rAF on iOS)
+        let detecting = false;
+        intervalRef.current = setInterval(async () => {
+          if (!scanningRef.current || detecting) return;
+          const video = videoRef.current;
+          if (!video || video.readyState < 2) return;
+
+          detecting = true;
           try {
-            const barcodes = await detector.detect(videoRef.current);
+            // Draw current video frame to canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) { detecting = false; return; }
+            ctx.drawImage(video, 0, 0);
+
+            // Create ImageBitmap for detection
+            const imageBitmap = await createImageBitmap(canvas);
+            const barcodes = await detector.detect(imageBitmap);
+            imageBitmap.close();
+
             if (barcodes.length > 0 && scanningRef.current) {
               const code = barcodes[0].rawValue;
               const product = matchProduct(code);
               if (product) {
                 scanningRef.current = false;
                 setScanResult(product);
-                // Haptic feedback if available
+                setScannedCode(null);
                 if (navigator.vibrate) navigator.vibrate(50);
+              } else {
+                // Show the scanned code even if no product matched
+                setScannedCode(code);
+                if (navigator.vibrate) navigator.vibrate([30, 30, 30]);
               }
             }
           } catch {
             // detection frame error, continue
           }
-
-          if (scanningRef.current) {
-            rafRef.current = requestAnimationFrame(detect);
-          }
-        };
-
-        rafRef.current = requestAnimationFrame(detect);
+          detecting = false;
+        }, 250); // Scan ~4 times per second
       } catch (err: any) {
         if (!cancelled) {
           if (err.name === "NotAllowedError") {
@@ -128,7 +146,10 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
     return () => {
       cancelled = true;
       scanningRef.current = false;
-      cancelAnimationFrame(rafRef.current);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -145,6 +166,7 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
       setTorchOn(false);
       setManualEntry(false);
       setManualValue("");
+      setScannedCode(null);
     }
   }, [open]);
 
@@ -168,34 +190,13 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
     onAddToCart(scanResult.id);
     setAdded(true);
     setTimeout(() => {
-      // Reset for next scan
+      // Reset for next scan — interval loop is still running, just re-enable scanning
       setAdded(false);
       setScanResult(null);
+      setScannedCode(null);
       scanningRef.current = true;
-      // Restart detection loop
-      const detect = async () => {
-        if (!scanningRef.current || !videoRef.current || videoRef.current.readyState < 2) {
-          if (scanningRef.current) rafRef.current = requestAnimationFrame(detect);
-          return;
-        }
-        try {
-          const barcodes = await detectorRef.current?.detect(videoRef.current);
-          if (barcodes?.length > 0 && scanningRef.current) {
-            const code = barcodes[0].rawValue;
-            const product = matchProduct(code);
-            if (product) {
-              scanningRef.current = false;
-              setScanResult(product);
-              if (navigator.vibrate) navigator.vibrate(50);
-              return;
-            }
-          }
-        } catch {}
-        if (scanningRef.current) rafRef.current = requestAnimationFrame(detect);
-      };
-      rafRef.current = requestAnimationFrame(detect);
     }, 600);
-  }, [scanResult, onAddToCart, matchProduct]);
+  }, [scanResult, onAddToCart]);
 
   // Manual barcode/SKU submit
   const handleManualSubmit = useCallback(() => {
@@ -279,11 +280,24 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
           </div>
         )}
 
-        {/* Instruction text */}
+        {/* Instruction text / scanned code feedback */}
         {!showManualFallback && !scanResult && (
-          <p className="absolute bottom-[45%] text-sm font-semibold text-white/60 z-10">
-            Align barcode within frame
-          </p>
+          <div className="absolute bottom-[42%] z-10 flex flex-col items-center gap-2">
+            {scannedCode ? (
+              <>
+                <span className="px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur font-mono text-sm text-white">
+                  {scannedCode}
+                </span>
+                <p className="text-xs font-semibold text-danger/80">
+                  No matching product found
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-semibold text-white/60">
+                Align barcode within frame
+              </p>
+            )}
+          </div>
         )}
 
         {/* Manual entry fallback */}
