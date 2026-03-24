@@ -374,7 +374,7 @@ export default function POSPage() {
     subtotal: number; tax: number; total: number;
     orderNumber: string; paymentMethod: string;
     ageVerified?: boolean; verificationMethod?: string;
-    customerId?: string; customerName?: string;
+    customerId?: string; customerName?: string; customerPhone?: string;
   } | null>(null);
 
   // Age verification
@@ -535,6 +535,7 @@ export default function POSPage() {
       verificationMethod: verificationMethod || undefined,
       customerId: customerId || undefined,
       customerName: customerName || undefined,
+      customerPhone: customerPhone || undefined,
     });
     setCart([]);
     setCustomerId(undefined);
@@ -1313,6 +1314,7 @@ export default function POSPage() {
           cashierName={(session?.user as any)?.name || "Cashier"}
           customerName={lastOrder.customerName}
           customerId={lastOrder.customerId}
+          customerPhone={lastOrder.customerPhone}
           storeId={storeId}
           ageVerified={lastOrder.ageVerified}
           verificationMethod={lastOrder.verificationMethod}

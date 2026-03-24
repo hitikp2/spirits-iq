@@ -25,6 +25,7 @@ interface ReceiptModalProps {
   customerName?: string;
   customerPoints?: number;
   customerId?: string;
+  customerPhone?: string;
   storeId?: string;
   ageVerified?: boolean;
   verificationMethod?: string;
@@ -44,6 +45,7 @@ export default function ReceiptModal({
   customerName,
   customerPoints,
   customerId,
+  customerPhone,
   storeId,
   ageVerified,
   verificationMethod: ageMethod,
@@ -87,10 +89,12 @@ export default function ReceiptModal({
     return lines.join("\n");
   }, [orderNumber, date, time, items, subtotal, tax, total, payLabel]);
 
-  // Open SMS dialog — always show phone pad so cashier can enter/confirm number
+  // Open SMS dialog — pre-fill from customer data if available
   const handleSmsClick = useCallback(() => {
+    if (customerPhone && !smsPhone) setSmsPhone(customerPhone);
+    if (customerName && !smsName) setSmsName(customerName);
     setShowPhoneInput(true);
-  }, []);
+  }, [customerPhone, customerName, smsPhone, smsName]);
 
   // Actually send SMS receipt
   const handleSendSms = useCallback(async () => {
@@ -231,36 +235,17 @@ export default function ReceiptModal({
               className="w-full px-3 py-2.5 mb-2 bg-surface-800 border border-surface-700 rounded-xl text-surface-100 text-sm font-body placeholder:text-surface-500 focus:outline-none focus:border-brand transition-colors"
             />
 
-            {/* Phone display */}
-            <div className="w-full px-3 py-3 mb-3 bg-surface-800 border border-surface-700 rounded-xl text-center">
-              <span className="font-mono text-xl text-surface-100 tracking-wider">
-                {smsPhone || <span className="text-surface-500">Enter phone number</span>}
-              </span>
-            </div>
-
-            {/* Number pad */}
-            <div className="grid grid-cols-3 gap-1.5 mb-3">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0", "⌫"].map((key) => (
-                <button
-                  key={key}
-                  onClick={() => {
-                    if (key === "⌫") {
-                      setSmsPhone((p) => p.slice(0, -1));
-                    } else {
-                      setSmsPhone((p) => p + key);
-                    }
-                  }}
-                  className={cn(
-                    "py-3 rounded-xl text-base font-bold font-mono transition-all active:scale-[0.92]",
-                    key === "⌫"
-                      ? "bg-danger/10 text-danger border border-danger/20"
-                      : "bg-surface-800 border border-surface-700 text-surface-100 hover:bg-surface-700"
-                  )}
-                >
-                  {key}
-                </button>
-              ))}
-            </div>
+            {/* Phone input — uses device numpad */}
+            <input
+              type="tel"
+              inputMode="tel"
+              placeholder="Phone number"
+              value={smsPhone}
+              onChange={(e) => setSmsPhone(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && smsPhone.trim() && handleSendSms()}
+              className="w-full px-3 py-2.5 mb-3 bg-surface-800 border border-surface-700 rounded-xl text-surface-100 font-mono text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand transition-colors"
+              autoFocus
+            />
 
             {/* Send button */}
             <button
