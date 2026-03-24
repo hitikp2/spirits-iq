@@ -34,6 +34,7 @@ interface Product {
   isAgeRestricted: boolean;
   size: string | null;
   abv: number | null;
+  barcode: string | null;
 }
 
 // ─── Stripe Payment Form (inside Elements provider) ─────

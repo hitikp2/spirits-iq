@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
 interface Product {
   id: string;
   sku: string;
+  barcode: string | null;
   name: string;
   brand: string;
   retailPrice: number;
@@ -23,59 +24,249 @@ interface ScannerModalProps {
 export default function ScannerModal({ open, onClose, onAddToCart, products }: ScannerModalProps) {
   const [scanResult, setScanResult] = useState<Product | null>(null);
   const [added, setAdded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [torchOn, setTorchOn] = useState(false);
+  const [manualEntry, setManualEntry] = useState(false);
+  const [manualValue, setManualValue] = useState("");
 
-  // Simulate a scan after opening
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectorRef = useRef<any>(null);
+  const rafRef = useRef<number>(0);
+  const scanningRef = useRef(false);
+
+  // Match a scanned barcode/SKU to a product
+  const matchProduct = useCallback((code: string): Product | null => {
+    const normalized = code.trim().toLowerCase();
+    return products.find(
+      (p) =>
+        (p.barcode && p.barcode.toLowerCase() === normalized) ||
+        p.sku.toLowerCase() === normalized
+    ) || null;
+  }, [products]);
+
+  // Start camera + barcode detection
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    scanningRef.current = true;
+
+    async function start() {
+      try {
+        // Check for BarcodeDetector support
+        if (!("BarcodeDetector" in window)) {
+          setError("no-detector");
+          return;
+        }
+
+        const detector = new (window as any).BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "qr_code"],
+        });
+        detectorRef.current = detector;
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        // Detection loop
+        const detect = async () => {
+          if (!scanningRef.current || !videoRef.current || videoRef.current.readyState < 2) {
+            if (scanningRef.current) rafRef.current = requestAnimationFrame(detect);
+            return;
+          }
+
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            if (barcodes.length > 0 && scanningRef.current) {
+              const code = barcodes[0].rawValue;
+              const product = matchProduct(code);
+              if (product) {
+                scanningRef.current = false;
+                setScanResult(product);
+                // Haptic feedback if available
+                if (navigator.vibrate) navigator.vibrate(50);
+              }
+            }
+          } catch {
+            // detection frame error, continue
+          }
+
+          if (scanningRef.current) {
+            rafRef.current = requestAnimationFrame(detect);
+          }
+        };
+
+        rafRef.current = requestAnimationFrame(detect);
+      } catch (err: any) {
+        if (!cancelled) {
+          if (err.name === "NotAllowedError") {
+            setError("Camera access denied. Please allow camera in your browser settings.");
+          } else {
+            setError("no-detector");
+          }
+        }
+      }
+    }
+
+    start();
+
+    return () => {
+      cancelled = true;
+      scanningRef.current = false;
+      cancelAnimationFrame(rafRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [open, matchProduct]);
+
+  // Reset state when closed
   useEffect(() => {
     if (!open) {
       setScanResult(null);
       setAdded(false);
-      return;
+      setError(null);
+      setTorchOn(false);
+      setManualEntry(false);
+      setManualValue("");
     }
-    const inStock = products.filter((p) => p.quantity > 0);
-    if (inStock.length === 0) return;
-    const timer = setTimeout(() => {
-      const p = inStock[Math.floor(Math.random() * inStock.length)];
-      setScanResult(p);
-    }, 1800);
-    return () => clearTimeout(timer);
-  }, [open, products]);
+  }, [open]);
 
+  // Torch toggle
+  const toggleTorch = useCallback(async () => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      const newVal = !torchOn;
+      await (track as any).applyConstraints({ advanced: [{ torch: newVal }] });
+      setTorchOn(newVal);
+    } catch {
+      // torch not supported on this device
+    }
+  }, [torchOn]);
+
+  // Add to cart
   const handleAdd = useCallback(() => {
     if (!scanResult) return;
     onAddToCart(scanResult.id);
     setAdded(true);
-    setTimeout(() => onClose(), 600);
-  }, [scanResult, onAddToCart, onClose]);
+    setTimeout(() => {
+      // Reset for next scan
+      setAdded(false);
+      setScanResult(null);
+      scanningRef.current = true;
+      // Restart detection loop
+      const detect = async () => {
+        if (!scanningRef.current || !videoRef.current || videoRef.current.readyState < 2) {
+          if (scanningRef.current) rafRef.current = requestAnimationFrame(detect);
+          return;
+        }
+        try {
+          const barcodes = await detectorRef.current?.detect(videoRef.current);
+          if (barcodes?.length > 0 && scanningRef.current) {
+            const code = barcodes[0].rawValue;
+            const product = matchProduct(code);
+            if (product) {
+              scanningRef.current = false;
+              setScanResult(product);
+              if (navigator.vibrate) navigator.vibrate(50);
+              return;
+            }
+          }
+        } catch {}
+        if (scanningRef.current) rafRef.current = requestAnimationFrame(detect);
+      };
+      rafRef.current = requestAnimationFrame(detect);
+    }, 600);
+  }, [scanResult, onAddToCart, matchProduct]);
+
+  // Manual barcode/SKU submit
+  const handleManualSubmit = useCallback(() => {
+    if (!manualValue.trim()) return;
+    const product = matchProduct(manualValue);
+    if (product) {
+      setScanResult(product);
+      setManualEntry(false);
+      setManualValue("");
+    } else {
+      setError(`No product found for "${manualValue}"`);
+      setTimeout(() => setError(null), 2500);
+    }
+  }, [manualValue, matchProduct]);
 
   if (!open) return null;
 
+  const showManualFallback = error === "no-detector" || manualEntry;
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
-      {/* Viewport */}
+      {/* Camera viewport */}
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-        {/* Simulated camera background */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(30,35,48,0.2)_0%,rgba(0,0,0,0.8)_100%)]" />
-        <span className="text-7xl opacity-10 animate-bounce" style={{ animationDuration: "3s" }}>🍾</span>
+        {/* Live camera feed */}
+        <video
+          ref={videoRef}
+          className="absolute inset-0 w-full h-full object-cover"
+          playsInline
+          muted
+          autoPlay
+        />
 
-        {/* Overlay controls */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          {/* Top bar */}
-          <div className="absolute top-3 left-3 right-3 flex justify-between items-center">
+        {/* Dark overlay outside scan area */}
+        <div className="absolute inset-0 bg-black/40" />
+
+        {/* Top bar */}
+        <div className="absolute top-3 left-3 right-3 flex justify-between items-center z-10">
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/10 text-white flex items-center justify-center text-lg active:scale-90 transition-transform"
+          >
+            ✕
+          </button>
+          <div className="flex gap-2">
             <button
-              onClick={onClose}
-              className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/10 text-white flex items-center justify-center text-lg active:scale-90 transition-transform"
+              onClick={() => { setManualEntry(!manualEntry); setError(null); }}
+              className="h-10 px-3 rounded-full bg-black/50 backdrop-blur-xl border border-white/10 text-white flex items-center justify-center text-xs font-mono active:scale-90 transition-transform"
             >
-              ✕
+              SKU
             </button>
             <button
-              className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-xl border border-white/10 text-white flex items-center justify-center text-lg active:scale-90 transition-transform"
+              onClick={toggleTorch}
+              className={cn(
+                "w-10 h-10 rounded-full backdrop-blur-xl border flex items-center justify-center text-lg active:scale-90 transition-transform",
+                torchOn
+                  ? "bg-brand/30 border-brand/40 text-brand"
+                  : "bg-black/50 border-white/10 text-white"
+              )}
             >
               ⚡
             </button>
           </div>
+        </div>
 
-          {/* Scan frame */}
-          <div className="w-60 h-[150px] relative">
+        {/* Scan frame — centered */}
+        {!showManualFallback && (
+          <div className="relative z-10 w-60 h-[150px]">
+            {/* Clear window in the overlay */}
+            <div className="absolute inset-0 bg-transparent" />
             {/* Corners */}
             <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-brand rounded-tl-lg" />
             <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-brand rounded-tr-lg" />
@@ -84,18 +275,53 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
             {/* Scan line */}
             <div
               className="absolute left-2 right-2 h-0.5 bg-brand rounded-full shadow-[0_0_12px_var(--brand-glow),0_0_30px_rgba(245,166,35,0.3)]"
-              style={{
-                animation: "scanLine 2s ease-in-out infinite",
-              }}
+              style={{ animation: "scanLine 2s ease-in-out infinite" }}
             />
           </div>
-          <p className="mt-5 text-sm font-semibold text-white/60">Align barcode within frame</p>
-        </div>
+        )}
+
+        {/* Instruction text */}
+        {!showManualFallback && !scanResult && (
+          <p className="absolute bottom-[45%] text-sm font-semibold text-white/60 z-10">
+            Align barcode within frame
+          </p>
+        )}
+
+        {/* Manual entry fallback */}
+        {showManualFallback && (
+          <div className="relative z-10 w-[85%] max-w-sm space-y-4 text-center">
+            {error === "no-detector" && (
+              <p className="text-sm text-white/60">
+                Camera barcode scanning not available on this browser. Enter barcode or SKU manually.
+              </p>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={manualValue}
+                onChange={(e) => setManualValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
+                placeholder="Barcode or SKU..."
+                autoFocus
+                className="flex-1 h-12 px-4 rounded-xl bg-surface-800 border border-surface-600 text-surface-100 font-mono text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
+              />
+              <button
+                onClick={handleManualSubmit}
+                className="h-12 px-5 rounded-xl bg-brand text-surface-950 font-bold text-sm active:scale-95 transition-transform"
+              >
+                Look up
+              </button>
+            </div>
+            {error && error !== "no-detector" && (
+              <p className="text-xs text-danger">{error}</p>
+            )}
+          </div>
+        )}
 
         {/* Scan result panel */}
         <div
           className={cn(
-            "absolute bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-700 rounded-t-[20px] p-5 transition-transform duration-300",
+            "absolute bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-700 rounded-t-[20px] p-5 transition-transform duration-300 z-20",
             scanResult ? "translate-y-0" : "translate-y-full"
           )}
           style={{ transitionTimingFunction: "cubic-bezier(.34,1.56,.64,1)" }}
