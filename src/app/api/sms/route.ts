@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { sendSms, sendBroadcastCampaign } from "@/lib/sms";
+import { sendSms, sendSmsDirect, sendBroadcastCampaign } from "@/lib/sms";
 import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -105,6 +105,30 @@ export async function POST(request: NextRequest) {
         );
       }
       const sid = await sendSms(customer.phone, message, customerId);
+      return NextResponse.json({
+        success: !!sid,
+        data: { twilioSid: sid },
+        error: sid ? undefined : "Failed to send",
+      } satisfies ApiResponse);
+    }
+
+    if (action === "send-direct") {
+      // Send SMS directly to a phone number (e.g. receipt to non-customer)
+      const { phone, message } = body;
+      if (!phone || !message) {
+        return NextResponse.json(
+          { success: false, error: "Phone and message required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+      // Look up customer by phone, or use a placeholder
+      const directStoreId = body.storeId || request.headers.get("x-store-id") || "";
+      const customer = directStoreId
+        ? await db.customer.findFirst({ where: { phone, storeId: directStoreId } })
+        : null;
+      const sid = customer
+        ? await sendSms(phone, message, customer.id)
+        : await sendSmsDirect(phone, message);
       return NextResponse.json({
         success: !!sid,
         data: { twilioSid: sid },

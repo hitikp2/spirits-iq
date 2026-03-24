@@ -45,6 +45,29 @@ export async function sendSms(
   }
 }
 
+// ─── Send SMS without customer record (e.g. receipt to phone) ───
+export async function sendSmsDirect(
+  to: string,
+  body: string
+): Promise<string | null> {
+  if (!client) {
+    console.warn("Twilio not configured — skipping SMS send");
+    return null;
+  }
+  try {
+    const message = await client.messages.create({
+      to,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      body,
+      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+    });
+    return message.sid;
+  } catch (error) {
+    console.error("SMS direct send failed:", error);
+    return null;
+  }
+}
+
 // ─── Handle Inbound SMS (Twilio Webhook) ─────────────────
 export async function handleInboundSms(
   from: string,

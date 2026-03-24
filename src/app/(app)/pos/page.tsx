@@ -1309,9 +1309,10 @@ export default function POSPage() {
           paymentMethod={lastOrder.paymentMethod}
           cashierName={(session?.user as any)?.name || "Cashier"}
           customerName={customerName || undefined}
+          customerId={customerId}
+          storeId={storeId}
           ageVerified={lastOrder.ageVerified}
           verificationMethod={lastOrder.verificationMethod}
-          onSendSms={() => toast.success("Receipt sent via SMS")}
           onSendEmail={() => toast.success("Receipt sent via email")}
         />
       )}

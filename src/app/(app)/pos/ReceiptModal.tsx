@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { cn, formatCurrency } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface ReceiptItem {
   name: string;
@@ -23,9 +24,10 @@ interface ReceiptModalProps {
   cashierName: string;
   customerName?: string;
   customerPoints?: number;
+  customerId?: string;
+  storeId?: string;
   ageVerified?: boolean;
   verificationMethod?: string;
-  onSendSms?: () => void;
   onSendEmail?: () => void;
 }
 
@@ -41,12 +43,16 @@ export default function ReceiptModal({
   cashierName,
   customerName,
   customerPoints,
+  customerId,
+  storeId,
   ageVerified,
   verificationMethod: ageMethod,
-  onSendSms,
   onSendEmail,
 }: ReceiptModalProps) {
   const [view, setView] = useState<"digital" | "print">("digital");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsPhone, setSmsPhone] = useState("");
+  const [showPhoneInput, setShowPhoneInput] = useState(false);
   const earnPts = Math.round(total);
 
   const now = useMemo(() => new Date(), []);
@@ -60,6 +66,80 @@ export default function ReceiptModal({
       default: return "Visa ending in 4242";
     }
   }, [paymentMethod]);
+
+  // Build receipt text for SMS
+  const receiptText = useMemo(() => {
+    const lines = [
+      `🥃 SPIRITS IQ — Receipt`,
+      `Order #${orderNumber}`,
+      `${date} ${time}`,
+      ``,
+      ...items.map((i) => `${i.quantity}x ${i.name} — ${formatCurrency(Number(i.price) * i.quantity)}`),
+      ``,
+      `Subtotal: ${formatCurrency(subtotal)}`,
+      `Tax: ${formatCurrency(tax)}`,
+      `Total: ${formatCurrency(total)}`,
+      `Paid: ${payLabel}`,
+      ``,
+      `Thank you for your purchase!`,
+    ];
+    return lines.join("\n");
+  }, [orderNumber, date, time, items, subtotal, tax, total, payLabel]);
+
+  // Send SMS receipt
+  const handleSendSms = useCallback(async () => {
+    if (!customerId && !smsPhone.trim()) {
+      setShowPhoneInput(true);
+      return;
+    }
+
+    setSmsSending(true);
+    try {
+      if (customerId) {
+        // Send via customer ID (already in system)
+        const res = await fetch("/api/sms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "send",
+            customerId,
+            message: receiptText,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          toast.success("Receipt sent via SMS");
+          setShowPhoneInput(false);
+        } else {
+          toast.error(json.error || "Failed to send SMS");
+        }
+      } else if (smsPhone.trim()) {
+        // Send directly to a phone number via Twilio
+        const res = await fetch("/api/sms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "send-direct",
+            phone: smsPhone.trim(),
+            message: receiptText,
+            storeId,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          toast.success("Receipt sent via SMS");
+          setShowPhoneInput(false);
+          setSmsPhone("");
+        } else {
+          toast.error(json.error || "Failed to send SMS");
+        }
+      }
+    } catch {
+      toast.error("Network error sending SMS");
+    } finally {
+      setSmsSending(false);
+    }
+  }, [customerId, smsPhone, receiptText, storeId]);
 
   if (!open) return null;
 
@@ -139,13 +219,45 @@ export default function ReceiptModal({
           )}
         </div>
 
+        {/* Phone input for SMS (when no customer linked) */}
+        {showPhoneInput && !customerId && (
+          <div className="px-4 py-2 border-t border-surface-700 flex-shrink-0">
+            <div className="flex gap-2 items-center">
+              <input
+                type="tel"
+                inputMode="tel"
+                placeholder="Phone number..."
+                value={smsPhone}
+                onChange={(e) => setSmsPhone(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && smsPhone.trim() && handleSendSms()}
+                className="flex-1 px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-surface-100 font-mono text-xs placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                autoFocus
+              />
+              <button
+                onClick={handleSendSms}
+                disabled={smsSending || !smsPhone.trim()}
+                className="px-4 py-2 rounded-lg bg-brand text-surface-950 font-display text-xs font-bold disabled:opacity-50 active:scale-95 transition-transform"
+              >
+                {smsSending ? "..." : "Send"}
+              </button>
+              <button
+                onClick={() => { setShowPhoneInput(false); setSmsPhone(""); }}
+                className="px-2 py-2 rounded-lg text-surface-400 text-xs hover:text-surface-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Bottom actions */}
-        <div className="px-4 py-3 border-t border-surface-700 flex-shrink-0 flex gap-2">
+        <div className="px-4 pt-3 pb-6 border-t border-surface-700 flex-shrink-0 flex gap-2" style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom, 1.5rem))" }}>
           <button
-            onClick={onSendSms}
-            className="flex-1 py-3 rounded-xl border border-surface-700 bg-surface-800 text-surface-100 text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-[0.96] transition-transform"
+            onClick={handleSendSms}
+            disabled={smsSending}
+            className="flex-1 py-3 rounded-xl border border-surface-700 bg-surface-800 text-surface-100 text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-[0.96] transition-transform disabled:opacity-50"
           >
-            💬 SMS
+            {smsSending ? "Sending..." : "💬 SMS"}
           </button>
           <button
             onClick={onSendEmail}
