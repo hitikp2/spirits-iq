@@ -57,7 +57,7 @@ export default function ReceiptModal({
   const [smsPhone, setSmsPhone] = useState("");
   const [smsName, setSmsName] = useState("");
   const [showPhoneInput, setShowPhoneInput] = useState(false);
-  const [sendAsImage, setSendAsImage] = useState(false);
+  const [sendAsImage, setSendAsImage] = useState(true);
   const receiptRef = useRef<HTMLDivElement>(null);
   const earnPts = Math.round(total);
 
@@ -116,6 +116,9 @@ export default function ReceiptModal({
         const uploadJson = await uploadRes.json();
         if (uploadJson.success) {
           mediaUrl = uploadJson.data.imageUrl;
+        } else {
+          console.error("Receipt image upload failed:", uploadJson.error);
+          toast.error("Image upload failed — sending as text instead");
         }
       }
 

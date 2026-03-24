@@ -311,6 +311,8 @@ ENV NEXTAUTH_URL="http://localhost:3000"
 | `TWILIO_MESSAGING_SERVICE_SID` | For SMS | Twilio messaging service |
 | `REDIS_URL` | Optional | Caching (graceful no-op fallback) |
 | `CRON_SECRET` | For cron | Bearer token for `/api/cron` and `/api/seed` |
+| `SUPABASE_URL` | For MMS receipts | Supabase project URL (e.g. `https://xyz.supabase.co`) |
+| `SUPABASE_SERVICE_KEY` | For MMS receipts | Supabase service role key (or `SUPABASE_SERVICE_ROLE_KEY`) |
 
 ## Redis Configuration
 - **Lazy proxy** in `src/lib/db/redis.ts` — only connects if `REDIS_URL` is set
@@ -345,6 +347,35 @@ All items resolved. Pages use `useSession()`, API routes read `x-store-id` heade
 
 ### Phase 2: Fix Known Bugs — COMPLETED
 All items resolved. Prisma field bug fixed, inventory filter aligned, settings migrated to React Query, sidebar AI status is dynamic.
+
+## SMS Receipt (MMS Image) — Implementation Status
+
+### Architecture
+1. **ReceiptModal.tsx** — `sendAsImage` toggle (defaults ON), uses `html2canvas` to capture receipt as PNG
+2. **`/api/receipt-image`** — Uploads base64 PNG to Supabase Storage (`receipts` bucket), returns public URL
+3. **`/api/sms` (send-direct)** — Passes `mediaUrl` to Twilio for MMS delivery
+4. **`sendSmsDirect()`** in `src/lib/sms/index.ts` — Sets `params.mediaUrl = [url]` for Twilio MMS
+
+### Required Env Vars (Railway)
+- `SUPABASE_URL` — Must be set for image upload to work
+- `SUPABASE_SERVICE_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) — Supabase service role key
+
+### Known Issues & Fixes (2026-03-24)
+| Issue | Status | Details |
+|-------|--------|---------|
+| `sendAsImage` defaulted to `false` | **FIXED** | Changed to `true` — users expect image by default |
+| Known-customer auto-send skipped toggle | **FIXED** | Now defaults ON, so auto-send uses image mode |
+| Silent fallback to text on upload failure | **FIXED** | Added toast warning when image upload fails |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` not set in Railway | **CHECK REQUIRED** | Without these env vars, upload returns 503 and silently falls back to text. Verify these are set in Railway dashboard |
+| Supabase `receipts` bucket not created | Auto-handled | `/api/receipt-image` auto-creates public bucket on first upload |
+| Twilio MMS requires publicly accessible URL | OK | Supabase Storage public bucket URLs are accessible |
+
+### Debugging MMS Failures
+1. Check Railway logs for `"Receipt image upload:"` errors
+2. Verify `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are set in Railway env vars
+3. Test image upload: POST to `/api/receipt-image` with `{ imageBase64: "data:image/png;base64,..." }`
+4. Verify Supabase Storage bucket `receipts` exists and is public
+5. If toast shows "Image upload failed — sending as text instead", the Supabase upload is failing
 
 ### Phase 3: External Service Integration
 1. Configure Stripe webhook → `https://<domain>/api/webhooks?provider=stripe`
