@@ -23,6 +23,7 @@ ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 ENV DIRECT_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 ENV NEXTAUTH_SECRET="build-secret"
 ENV NEXTAUTH_URL="http://localhost:3000"
+ENV STRIPE_SECRET_KEY="sk_live_build_placeholder"
 
 RUN ./node_modules/.bin/prisma generate
 RUN npm run build
