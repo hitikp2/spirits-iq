@@ -32,6 +32,7 @@ interface Product {
   isActive: boolean;
   tags: string[];
   supplier: { name: string };
+  imageUrl: string | null;
 }
 
 interface Alert {
@@ -454,9 +455,23 @@ export default function InventoryPage() {
                   return (
                     <tr key={product.id} className="hover:bg-surface-800/50 transition-colors">
                       <td className="px-5 py-3.5">
-                        <div>
-                          <p className="font-body text-sm font-medium text-surface-100">{product.name}</p>
-                          <p className="font-body text-xs text-surface-400">{product.brand}</p>
+                        <div className="flex items-center gap-3">
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-9 h-9 rounded-lg object-cover bg-surface-800 flex-shrink-0"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg bg-surface-800 flex items-center justify-center flex-shrink-0">
+                              <span className="text-surface-500 text-xs">{product.category?.icon || "📦"}</span>
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-body text-sm font-medium text-surface-100">{product.name}</p>
+                            <p className="font-body text-xs text-surface-400">{product.brand}</p>
+                          </div>
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
@@ -592,15 +607,31 @@ export default function InventoryPage() {
 
               return (
                 <div key={product.id} className="bg-surface-900 border border-surface-600 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-body text-sm font-medium text-surface-100">{product.name}</p>
-                      <p className="font-body text-xs text-surface-400">{product.brand}</p>
-                      <p className="font-mono text-xs text-surface-400 mt-0.5">{product.sku}</p>
+                  <div className="flex items-start gap-3">
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="w-11 h-11 rounded-lg object-cover bg-surface-800 flex-shrink-0"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-11 h-11 rounded-lg bg-surface-800 flex items-center justify-center flex-shrink-0">
+                        <span className="text-surface-500 text-lg">{product.category?.icon || "📦"}</span>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-body text-sm font-medium text-surface-100">{product.name}</p>
+                          <p className="font-body text-xs text-surface-400">{product.brand}</p>
+                          <p className="font-mono text-xs text-surface-400 mt-0.5">{product.sku}</p>
+                        </div>
+                        <span className={cn("px-2 py-0.5 rounded-lg text-xs font-display font-semibold shrink-0", statusColors[stock.color])}>
+                          {stock.label}
+                        </span>
+                      </div>
                     </div>
-                    <span className={cn("px-2 py-0.5 rounded-lg text-xs font-display font-semibold shrink-0", statusColors[stock.color])}>
-                      {stock.label}
-                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">

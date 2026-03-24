@@ -19,22 +19,19 @@ interface ProductIdentification {
   imageUrl?: string;
 }
 
-// Upload product photo to Supabase Storage, return public URL
-async function uploadProductImage(base64: string): Promise<string | null> {
+// Upload a buffer to Supabase Storage, return public URL
+async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: string): Promise<string | null> {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) return null;
 
-  const base64Data = base64.replace(/^data:image\/\w+;base64,/, "");
-  const buffer = Buffer.from(base64Data, "base64");
   if (buffer.length > 5 * 1024 * 1024) return null;
 
-  const fileName = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
   const uploadUrl = `${supabaseUrl}/storage/v1/object/${BUCKET}/${fileName}`;
 
   const headers = {
     Authorization: `Bearer ${serviceKey}`,
-    "Content-Type": "image/jpeg",
+    "Content-Type": contentType,
     "x-upsert": "true",
   };
 
@@ -57,6 +54,63 @@ async function uploadProductImage(base64: string): Promise<string | null> {
   return `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${fileName}`;
 }
 
+// Generate a clean product photo with white background using Gemini image generation (REST API)
+async function generateCleanProductImage(base64Data: string): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: "image/jpeg",
+                    data: base64Data,
+                  },
+                },
+                {
+                  text: "Edit this product photo: remove the background completely and replace it with a clean, plain white background (#FFFFFF). Keep the product exactly as-is — do not change, distort, or reimagine the product itself. Center the product in the frame with even padding. The result should look like a professional e-commerce product listing thumbnail. Output only the edited image.",
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ["IMAGE", "TEXT"],
+            maxOutputTokens: 4096,
+          },
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      console.error("Gemini image generation failed:", res.status, await res.text());
+      return null;
+    }
+
+    const data = await res.json();
+    const candidates = data.candidates;
+    if (!candidates?.[0]?.content?.parts) return null;
+
+    // Find the image part in the response
+    for (const part of candidates[0].content.parts) {
+      if (part.inlineData?.data) {
+        return part.inlineData.data; // base64 image data
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("Gemini image generation error:", error);
+    return null;
+  }
+}
+
 // POST /api/product-identify — AI-powered product identification from photo
 export async function POST(request: NextRequest) {
   try {
@@ -76,25 +130,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upload the photo in parallel with AI identification
-    const uploadPromise = uploadProductImage(imageBase64);
-
-    // Send photo to Gemini Vision for identification
-    const model = getModel({
-      maxOutputTokens: 500,
-      systemInstruction: `You are a liquor store product identification assistant. Analyze the product photo and return ONLY a JSON object with these fields. Be accurate with pricing — use typical US retail prices. If you can't identify the exact product, make your best guess from what's visible.`,
-    });
-
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: base64Data,
-        },
-      },
-      `Identify this liquor/beverage product. ${barcode ? `Barcode: ${barcode}.` : ""}
+    // Run product identification AND AI image generation in parallel
+    const identifyPromise = (async () => {
+      const model = getModel({
+        maxOutputTokens: 500,
+        systemInstruction: `You are a liquor store product identification assistant. Analyze the product photo and return ONLY a JSON object with these fields. Be accurate with pricing — use typical US retail prices. If you can't identify the exact product, make your best guess from what's visible.`,
+      });
+
+      const result = await model.generateContent([
+        { inlineData: { mimeType: "image/jpeg", data: base64Data } },
+        `Identify this liquor/beverage product. ${barcode ? `Barcode: ${barcode}.` : ""}
 Return ONLY valid JSON (no markdown, no code fences):
 {
   "name": "Full product name",
@@ -107,10 +154,15 @@ Return ONLY valid JSON (no markdown, no code fences):
   "description": "Brief 1-line product description",
   "isAgeRestricted": true
 }`,
-    ]);
+      ]);
+      return result.response.text().trim();
+    })();
 
-    const text = result.response.text().trim();
-    // Extract JSON from response (handle markdown fences)
+    const cleanImagePromise = generateCleanProductImage(base64Data);
+
+    const [text, cleanImageBase64] = await Promise.all([identifyPromise, cleanImagePromise]);
+
+    // Parse product identification
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return NextResponse.json(
@@ -121,8 +173,25 @@ Return ONLY valid JSON (no markdown, no code fences):
 
     const product: ProductIdentification = JSON.parse(jsonMatch[0]);
 
-    // Wait for image upload
-    const imageUrl = await uploadPromise;
+    // Upload the AI-generated clean image, or fall back to the raw photo
+    const fileName = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`;
+    let imageUrl: string | null = null;
+
+    if (cleanImageBase64) {
+      // Upload the AI-generated white-background image
+      const buffer = Buffer.from(cleanImageBase64, "base64");
+      imageUrl = await uploadToSupabase(buffer, fileName, "image/png");
+      console.log("Uploaded AI-generated clean product image");
+    }
+
+    if (!imageUrl) {
+      // Fallback: upload the original photo
+      const rawBuffer = Buffer.from(base64Data, "base64");
+      const fallbackName = fileName.replace(".png", ".jpg");
+      imageUrl = await uploadToSupabase(rawBuffer, fallbackName, "image/jpeg");
+      console.log("Fallback: uploaded original photo");
+    }
+
     if (imageUrl) {
       product.imageUrl = imageUrl;
     }
