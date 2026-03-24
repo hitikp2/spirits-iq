@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useInventory, useProcessSale, useUpsellSuggestion } from "@/hooks/useApi";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatCurrency, cn } from "@/lib/utils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -335,6 +336,7 @@ function NfcTapModal({
 
 export default function POSPage() {
   const { data: session } = useSession();
+  const queryClient = useQueryClient();
   const storeId = (session?.user as any)?.storeId ?? "";
   const userId = (session?.user as any)?.id ?? "";
 
@@ -1275,7 +1277,9 @@ export default function POSPage() {
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onAddToCart={handleScannerAdd}
+        onProductCreated={() => queryClient.invalidateQueries({ queryKey: ["inventory"] })}
         products={products as any}
+        storeId={storeId}
       />
 
       {/* ─── Checkout Modal ─── */}

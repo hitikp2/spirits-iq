@@ -16,14 +16,27 @@ interface Product {
   size: string | null;
 }
 
+interface QuickAddForm {
+  name: string;
+  brand: string;
+  retailPrice: string;
+  costPrice: string;
+  quantity: string;
+  size: string;
+}
+
+const EMPTY_FORM: QuickAddForm = { name: "", brand: "", retailPrice: "", costPrice: "", quantity: "1", size: "750ml" };
+
 interface ScannerModalProps {
   open: boolean;
   onClose: () => void;
   onAddToCart: (productId: string) => void;
+  onProductCreated?: () => void;
   products: Product[];
+  storeId: string;
 }
 
-export default function ScannerModal({ open, onClose, onAddToCart, products }: ScannerModalProps) {
+export default function ScannerModal({ open, onClose, onAddToCart, onProductCreated, products, storeId }: ScannerModalProps) {
   const [scanResult, setScanResult] = useState<Product | null>(null);
   const [added, setAdded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +45,9 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
   const [manualValue, setManualValue] = useState("");
 
   const [scannedCode, setScannedCode] = useState<string | null>(null);
+  const [quickAdd, setQuickAdd] = useState(false);
+  const [quickForm, setQuickForm] = useState<QuickAddForm>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -167,6 +183,9 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
       setManualEntry(false);
       setManualValue("");
       setScannedCode(null);
+      setQuickAdd(false);
+      setQuickForm(EMPTY_FORM);
+      setSaving(false);
     }
   }, [open]);
 
@@ -207,10 +226,73 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
       setManualEntry(false);
       setManualValue("");
     } else {
-      setError(`No product found for "${manualValue}"`);
-      setTimeout(() => setError(null), 2500);
+      // No match — offer quick-add with this code as barcode
+      setScannedCode(manualValue.trim());
+      setManualEntry(false);
+      setManualValue("");
     }
   }, [manualValue, matchProduct]);
+
+  // Open quick-add form pre-filled with scanned barcode
+  const openQuickAdd = useCallback(() => {
+    scanningRef.current = false;
+    setQuickAdd(true);
+    setQuickForm(EMPTY_FORM);
+  }, []);
+
+  // Save quick-add product via API then add to cart
+  const handleQuickSave = useCallback(async () => {
+    if (!quickForm.name.trim()) return;
+    setSaving(true);
+    try {
+      // Generate a simple SKU from barcode or name
+      const sku = scannedCode || quickForm.name.replace(/\s+/g, "-").toUpperCase().slice(0, 20);
+
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          storeId,
+          barcode: scannedCode || undefined,
+          sku,
+          name: quickForm.name.trim(),
+          brand: quickForm.brand.trim() || undefined,
+          retailPrice: parseFloat(quickForm.retailPrice) || 0,
+          costPrice: parseFloat(quickForm.costPrice) || 0,
+          quantity: parseInt(quickForm.quantity) || 1,
+          size: quickForm.size.trim() || undefined,
+          isAgeRestricted: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success && data.data?.id) {
+        // Notify parent to refetch inventory
+        onProductCreated?.();
+        // Show as scan result so user can add to cart
+        setScanResult({
+          id: data.data.id,
+          sku: data.data.sku,
+          barcode: data.data.barcode,
+          name: data.data.name,
+          brand: data.data.brand || "",
+          retailPrice: data.data.retailPrice,
+          quantity: data.data.quantity,
+          size: data.data.size,
+        });
+        setQuickAdd(false);
+        setScannedCode(null);
+      } else {
+        setError(data.error || "Failed to create product");
+        setTimeout(() => setError(null), 3000);
+      }
+    } catch {
+      setError("Network error — could not save product");
+      setTimeout(() => setError(null), 3000);
+    }
+    setSaving(false);
+  }, [quickForm, scannedCode, storeId, onProductCreated]);
 
   if (!open) return null;
 
@@ -281,16 +363,22 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
         )}
 
         {/* Instruction text / scanned code feedback */}
-        {!showManualFallback && !scanResult && (
-          <div className="absolute bottom-[42%] z-10 flex flex-col items-center gap-2">
+        {!showManualFallback && !scanResult && !quickAdd && (
+          <div className="absolute bottom-[38%] z-10 flex flex-col items-center gap-2">
             {scannedCode ? (
               <>
                 <span className="px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur font-mono text-sm text-white">
                   {scannedCode}
                 </span>
-                <p className="text-xs font-semibold text-danger/80">
-                  No matching product found
+                <p className="text-xs font-semibold text-white/50 mb-1">
+                  Not in inventory
                 </p>
+                <button
+                  onClick={openQuickAdd}
+                  className="px-5 py-2.5 rounded-xl bg-brand text-surface-950 font-bold text-sm active:scale-95 transition-transform"
+                >
+                  ＋ Add New Product
+                </button>
               </>
             ) : (
               <p className="text-sm font-semibold text-white/60">
@@ -330,6 +418,117 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
             )}
           </div>
         )}
+
+        {/* Quick-add form panel */}
+        <div
+          className={cn(
+            "absolute bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-700 rounded-t-[20px] p-5 transition-transform duration-300 z-20 max-h-[75vh] overflow-y-auto",
+            quickAdd ? "translate-y-0" : "translate-y-full"
+          )}
+          style={{
+            transitionTimingFunction: "cubic-bezier(.34,1.56,.64,1)",
+            paddingBottom: "max(20px, env(safe-area-inset-bottom, 20px))",
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-[15px] font-bold text-surface-100">New Product</h3>
+              {scannedCode && (
+                <p className="text-[11px] text-surface-400 font-mono mt-0.5">Barcode: {scannedCode}</p>
+              )}
+            </div>
+            <button
+              onClick={() => { setQuickAdd(false); scanningRef.current = true; }}
+              className="text-surface-400 text-sm active:scale-90 transition-transform"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={quickForm.name}
+              onChange={(e) => setQuickForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="Product name *"
+              autoFocus
+              className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
+            />
+            <input
+              type="text"
+              value={quickForm.brand}
+              onChange={(e) => setQuickForm(f => ({ ...f, brand: e.target.value }))}
+              placeholder="Brand"
+              className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
+            />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Retail $</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  value={quickForm.retailPrice}
+                  onChange={(e) => setQuickForm(f => ({ ...f, retailPrice: e.target.value }))}
+                  placeholder="0.00"
+                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Cost $</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  value={quickForm.costPrice}
+                  onChange={(e) => setQuickForm(f => ({ ...f, costPrice: e.target.value }))}
+                  placeholder="0.00"
+                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Qty</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={quickForm.quantity}
+                  onChange={(e) => setQuickForm(f => ({ ...f, quantity: e.target.value }))}
+                  placeholder="1"
+                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm font-mono placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-surface-500 uppercase tracking-wider mb-1 block">Size</label>
+                <input
+                  type="text"
+                  value={quickForm.size}
+                  onChange={(e) => setQuickForm(f => ({ ...f, size: e.target.value }))}
+                  placeholder="750ml"
+                  className="w-full h-11 px-3 rounded-lg bg-surface-800 border border-surface-600 text-surface-100 text-sm placeholder:text-surface-500 focus:outline-none focus:border-brand"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <p className="text-xs text-danger">{error}</p>
+            )}
+
+            <button
+              onClick={handleQuickSave}
+              disabled={saving || !quickForm.name.trim()}
+              className={cn(
+                "w-full py-3.5 rounded-xl font-bold text-sm font-display flex items-center justify-center gap-2 transition-all active:scale-[0.97]",
+                saving || !quickForm.name.trim()
+                  ? "bg-surface-700 text-surface-400"
+                  : "bg-brand text-surface-950"
+              )}
+            >
+              {saving ? "Saving..." : "Save & Add to Cart"}
+            </button>
+          </div>
+        </div>
 
         {/* Scan result panel */}
         <div
