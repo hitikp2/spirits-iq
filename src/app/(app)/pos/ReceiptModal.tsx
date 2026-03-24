@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
+import html2canvas from "html2canvas";
 
 interface ReceiptItem {
   name: string;
@@ -56,6 +57,7 @@ export default function ReceiptModal({
   const [smsPhone, setSmsPhone] = useState("");
   const [smsName, setSmsName] = useState("");
   const [showPhoneInput, setShowPhoneInput] = useState(false);
+  const receiptRef = useRef<HTMLDivElement>(null);
   const earnPts = Math.round(total);
 
   const now = useMemo(() => new Date(), []);
@@ -96,26 +98,50 @@ export default function ReceiptModal({
     setShowPhoneInput(true);
   }, [customerPhone, customerName, smsPhone, smsName]);
 
-  // Actually send SMS receipt
+  // Capture receipt as image and send via MMS
   const handleSendSms = useCallback(async () => {
     if (!smsPhone.trim()) {
       toast.error("Enter a phone number");
       return;
     }
 
-    // Prepend name greeting if provided
-    const greeting = smsName.trim() ? `Hi ${smsName.trim()}! ` : "";
-    const fullMessage = greeting + receiptText;
-
     setSmsSending(true);
     try {
+      // Step 1: Capture receipt DOM as PNG
+      let mediaUrl: string | undefined;
+      if (receiptRef.current) {
+        const canvas = await html2canvas(receiptRef.current, {
+          backgroundColor: "#1a1a1a",
+          scale: 2,
+          useCORS: true,
+          logging: false,
+        });
+        const imageBase64 = canvas.toDataURL("image/png");
+
+        // Step 2: Upload image to get a public URL
+        const uploadRes = await fetch("/api/receipt-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64 }),
+        });
+        const uploadJson = await uploadRes.json();
+        if (uploadJson.success) {
+          mediaUrl = uploadJson.data.imageUrl;
+        }
+      }
+
+      // Step 3: Send via MMS (image) with optional text caption
+      const greeting = smsName.trim() ? `Hi ${smsName.trim()}! ` : "";
+      const caption = greeting + `Here's your receipt for order #${orderNumber}. Total: ${formatCurrency(total)}. Thank you!`;
+
       const res = await fetch("/api/sms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "send-direct",
           phone: smsPhone.trim(),
-          message: fullMessage,
+          message: caption,
+          mediaUrl,
           storeId,
         }),
       });
@@ -133,7 +159,7 @@ export default function ReceiptModal({
     } finally {
       setSmsSending(false);
     }
-  }, [smsPhone, smsName, receiptText, storeId]);
+  }, [smsPhone, smsName, storeId, orderNumber, total]);
 
   if (!open) return null;
 
@@ -176,6 +202,7 @@ export default function ReceiptModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4">
+          <div ref={receiptRef}>
           {view === "digital" ? (
             <DigitalReceipt
               items={items}
@@ -211,6 +238,7 @@ export default function ReceiptModal({
               earnPts={earnPts}
             />
           )}
+          </div>
         </div>
 
         {/* SMS Phone Pad Panel */}

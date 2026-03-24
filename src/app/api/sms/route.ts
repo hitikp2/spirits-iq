@@ -135,10 +135,10 @@ export async function POST(request: NextRequest) {
           { status: 503 }
         );
       }
-      const { phone, message } = body;
-      if (!phone || !message) {
+      const { phone, message, mediaUrl } = body;
+      if (!phone || (!message && !mediaUrl)) {
         return NextResponse.json(
-          { success: false, error: "Phone and message are required" } satisfies ApiResponse,
+          { success: false, error: "Phone and message (or mediaUrl) are required" } satisfies ApiResponse,
           { status: 400 }
         );
       }
@@ -147,9 +147,10 @@ export async function POST(request: NextRequest) {
       const customer = directStoreId
         ? await db.customer.findFirst({ where: { phone, storeId: directStoreId } })
         : null;
+      const smsOptions = mediaUrl ? { mediaUrl } : undefined;
       const sid = customer
-        ? await sendSms(phone, message, customer.id)
-        : await sendSmsDirect(phone, message);
+        ? await sendSms(phone, message || "", customer.id)
+        : await sendSmsDirect(phone, message || "", smsOptions);
       return NextResponse.json({
         success: !!sid,
         data: { twilioSid: sid },

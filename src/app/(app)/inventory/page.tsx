@@ -113,8 +113,26 @@ export default function InventoryPage() {
   function handleAdjustSubmit(productId: string) {
     const qty = parseInt(adjustQty, 10);
     if (isNaN(qty) || qty <= 0) return;
+
+    // Map UI type to Prisma InventoryAction enum + correct quantity sign
+    let dbType: string;
+    let dbQty: number;
+    if (adjustType === "add") {
+      dbType = "RESTOCK";
+      dbQty = qty;
+    } else if (adjustType === "remove") {
+      dbType = "ADJUSTMENT";
+      dbQty = -qty;
+    } else {
+      // "set" — find current stock and compute delta
+      const product = productList.find((p: any) => p.id === productId);
+      const currentQty = product?.quantity ?? 0;
+      dbType = "AUDIT";
+      dbQty = qty - currentQty;
+    }
+
     stockAdjust.mutate(
-      { productId, quantity: qty, type: adjustType, reason: adjustReason, performedBy: userId },
+      { productId, quantity: dbQty, type: dbType, reason: adjustReason || `Stock ${adjustType}: ${qty}`, performedBy: userId },
       {
         onSuccess: () => {
           setAdjustingId(null);

@@ -48,19 +48,24 @@ export async function sendSms(
 // ─── Send SMS without customer record (e.g. receipt to phone) ───
 export async function sendSmsDirect(
   to: string,
-  body: string
+  body: string,
+  options?: { mediaUrl?: string }
 ): Promise<string | null> {
   if (!client) {
     console.warn("Twilio not configured — skipping SMS send");
     return null;
   }
   try {
-    const message = await client.messages.create({
+    const params: Record<string, unknown> = {
       to,
       from: process.env.TWILIO_PHONE_NUMBER,
       body,
       messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-    });
+    };
+    if (options?.mediaUrl) {
+      params.mediaUrl = [options.mediaUrl];
+    }
+    const message = await client.messages.create(params as any);
     return message.sid;
   } catch (error) {
     console.error("SMS direct send failed:", error);
