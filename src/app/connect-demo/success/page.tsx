@@ -16,9 +16,20 @@
 
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function SuccessPage() {
+// ─── Suspense wrapper ────────────────────────────────────────────────────────
+// Next.js 14 requires useSearchParams() to be inside a Suspense boundary.
+export default function SuccessPageWrapper() {
+  return (
+    <Suspense fallback={<div style={{ padding: "2rem", color: "#94a3b8", textAlign: "center" }}>Loading...</div>}>
+      <SuccessPage />
+    </Suspense>
+  );
+}
+
+function SuccessPage() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
   const accountId = searchParams.get("account_id");

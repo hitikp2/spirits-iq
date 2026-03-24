@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -48,7 +48,18 @@ function formatPrice(cents: number, currency = "usd"): string {
   }).format(cents / 100);
 }
 
-export default function ConnectDemoDashboard() {
+// ─── Suspense wrapper ────────────────────────────────────────────────────────
+// Next.js 14 requires useSearchParams() to be inside a Suspense boundary
+// because it opts the page into client-side rendering and needs a fallback.
+export default function ConnectDemoPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: "2rem", color: "#94a3b8", textAlign: "center" }}>Loading...</div>}>
+      <ConnectDemoDashboard />
+    </Suspense>
+  );
+}
+
+function ConnectDemoDashboard() {
   // ─── State ─────────────────────────────────────────────────────────────────
   const searchParams = useSearchParams();
 
