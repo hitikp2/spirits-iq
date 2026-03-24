@@ -118,7 +118,7 @@ export default function ScannerModal({ open, onClose, onAddToCart, products }: S
                   </div>
                 </div>
                 <div className="text-xl font-bold text-brand font-mono">
-                  ${scanResult.retailPrice.toFixed(2)}
+                  ${Number(scanResult.retailPrice).toFixed(2)}
                 </div>
               </div>
               <button

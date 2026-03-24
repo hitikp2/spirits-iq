@@ -443,7 +443,7 @@ export default function POSPage() {
         {
           productId: product.id,
           name: product.name,
-          price: product.retailPrice,
+          price: Number(product.retailPrice),
           quantity: 1,
         },
       ];
@@ -905,7 +905,7 @@ export default function POSPage() {
                     {/* Price + Add button */}
                     <div className="mt-auto pt-1.5 flex items-end justify-between">
                       <span className="font-mono text-base font-bold text-brand leading-none">
-                        {formatCurrency(product.retailPrice)}
+                        {formatCurrency(Number(product.retailPrice))}
                       </span>
                       <button
                         onClick={(e) => { e.stopPropagation(); if (!outOfStock) addToCart(product); }}

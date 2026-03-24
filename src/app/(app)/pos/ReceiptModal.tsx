@@ -358,8 +358,8 @@ function PrintReceipt({
               {item.name} {item.size || "750ml"}
             </div>
             <div className="flex justify-between text-[9px] pl-2.5" style={{ color: "#555" }}>
-              <span>{item.quantity} x ${item.price.toFixed(2)}</span>
-              <span>${(item.price * item.quantity).toFixed(2)}</span>
+              <span>{item.quantity} x ${Number(item.price).toFixed(2)}</span>
+              <span>${(Number(item.price) * item.quantity).toFixed(2)}</span>
             </div>
           </div>
         ))}
@@ -367,23 +367,23 @@ function PrintReceipt({
         <hr className="my-2 border-0" style={{ borderTop: "1px dashed #bbb" }} />
 
         <div className="flex justify-between text-[10px]" style={{ lineHeight: 1.8 }}>
-          <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
+          <span>Subtotal</span><span>${Number(subtotal).toFixed(2)}</span>
         </div>
         <div className="flex justify-between text-[10px]" style={{ lineHeight: 1.8 }}>
-          <span>Tax 9.75%</span><span>${tax.toFixed(2)}</span>
+          <span>Tax 9.75%</span><span>${Number(tax).toFixed(2)}</span>
         </div>
 
         <hr className="my-2 border-0" style={{ borderTop: "1px dashed #bbb" }} />
 
         <div className="flex justify-between text-[13px] tracking-wider" style={{ fontWeight: 500 }}>
-          <span>TOTAL</span><span>${total.toFixed(2)}</span>
+          <span>TOTAL</span><span>${Number(total).toFixed(2)}</span>
         </div>
 
         <hr className="my-2 border-0" style={{ borderTop: "1px dashed #bbb" }} />
 
         <div className="flex justify-between text-[9px]" style={{ color: "#555", lineHeight: 1.8 }}>
           <span>{paymentMethod === "CARD" ? "VISA ***4242" : paymentMethod === "CASH" ? "CASH" : "TAP PAY"}</span>
-          <span>${total.toFixed(2)}</span>
+          <span>${Number(total).toFixed(2)}</span>
         </div>
         <div className="flex justify-between text-[9px]" style={{ color: "#555", lineHeight: 1.8 }}>
           <span>Auth: {100000 + Math.floor(Math.random() * 900000)}</span>
