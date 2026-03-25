@@ -57,14 +57,13 @@ async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: s
   return `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${fileName}`;
 }
 
-// ─── Download image from URL ──────────────────────────────────────────────
-async function downloadImage(url: string, minBytes = 3000): Promise<Buffer | null> {
+// ─── Download + validate image ────────────────────────────────────────────
+async function downloadImage(url: string): Promise<Buffer | null> {
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-        "Referer": "https://www.google.com/",
       },
       signal: AbortSignal.timeout(8000),
       redirect: "follow",
@@ -75,129 +74,89 @@ async function downloadImage(url: string, minBytes = 3000): Promise<Buffer | nul
     if (!ct.startsWith("image/")) return null;
 
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < minBytes || buf.length > 5 * 1024 * 1024) return null;
+    // Reject tiny images (logos/icons) and huge files
+    if (buf.length < 5000 || buf.length > 5 * 1024 * 1024) return null;
     return buf;
   } catch {
     return null;
   }
 }
 
-// ─── Extract product images from retailer HTML ────────────────────────────
-function extractProductImages(html: string, baseUrl: string): string[] {
-  const images: string[] = [];
+// ─── Strategy 1: Open Food Facts ──────────────────────────────────────────
+// Free API, no key needed, has images for many beverage products
+async function searchOpenFoodFacts(product: ProductIdentification): Promise<Buffer | null> {
+  try {
+    const query = `${product.brand} ${product.name}`.trim();
+    console.log(`[OFF] Searching: ${query}`);
 
-  // og:image — most reliable for product pages
-  const ogPatterns = [
-    /<meta\s+property="og:image"\s+content="([^"]+)"/i,
-    /<meta\s+content="([^"]+)"\s+property="og:image"/i,
-    /<meta\s+name="og:image"\s+content="([^"]+)"/i,
-  ];
-  for (const pat of ogPatterns) {
-    const m = html.match(pat);
-    if (m?.[1]) { images.push(m[1]); break; }
-  }
+    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=5&fields=product_name,image_url,image_front_url`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      console.log(`[OFF] HTTP ${res.status}`);
+      return null;
+    }
 
-  // twitter:image
-  const twPatterns = [
-    /<meta\s+(?:property|name)="twitter:image"\s+content="([^"]+)"/i,
-    /<meta\s+content="([^"]+)"\s+(?:property|name)="twitter:image"/i,
-  ];
-  for (const pat of twPatterns) {
-    const m = html.match(pat);
-    if (m?.[1]) { images.push(m[1]); break; }
-  }
+    const data = await res.json();
+    const products = data.products || [];
+    console.log(`[OFF] Found ${products.length} results`);
 
-  // JSON-LD structured data — Product schema with image
-  const jsonLdBlocks = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
-  for (const block of jsonLdBlocks) {
-    try {
-      const content = block.replace(/<\/?script[^>]*>/gi, "");
-      const parsed = JSON.parse(content);
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      for (const item of items) {
-        if (item["@type"] === "Product" || item["@type"]?.includes("Product")) {
-          const img = item.image;
-          if (typeof img === "string") images.push(img);
-          else if (Array.isArray(img) && typeof img[0] === "string") images.push(img[0]);
-          else if (img?.url) images.push(img.url);
-          else if (img?.contentUrl) images.push(img.contentUrl);
-        }
+    for (const p of products) {
+      const imgUrl = p.image_front_url || p.image_url;
+      if (!imgUrl) continue;
+
+      console.log(`[OFF] Trying: ${imgUrl.slice(0, 100)}`);
+      const buf = await downloadImage(imgUrl);
+      if (buf) {
+        console.log(`[OFF] SUCCESS: ${buf.length} bytes`);
+        return buf;
       }
-    } catch { /* skip invalid JSON-LD */ }
-  }
-
-  // Large product images from img tags (common patterns in retailer pages)
-  const imgMatches = html.match(/<img[^>]+src="(https?:\/\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/gi) || [];
-  for (const tag of imgMatches.slice(0, 20)) {
-    const srcMatch = tag.match(/src="([^"]+)"/);
-    if (!srcMatch) continue;
-    const src = srcMatch[1];
-    // Prefer large product images — skip tiny icons, avatars, logos
-    if (src.includes("logo") || src.includes("icon") || src.includes("avatar")) continue;
-    if (src.includes("product") || src.includes("bottle") || src.includes("item")) {
-      images.push(src);
     }
+  } catch (error) {
+    console.error("[OFF] Exception:", error);
   }
-
-  // Resolve relative URLs
-  return images.map(url => {
-    if (url.startsWith("//")) return "https:" + url;
-    if (url.startsWith("/")) {
-      try { return new URL(url, baseUrl).href; } catch { return url; }
-    }
-    return url;
-  }).filter(url => url.startsWith("http"));
-}
-
-// ─── Strategy 1: Direct retailer search + scrape ─────────────────────────
-// Search known liquor retailers directly by constructing search URLs
-async function searchRetailers(product: ProductIdentification): Promise<Buffer | null> {
-  const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
-  const encoded = encodeURIComponent(query);
-
-  // Retailers with predictable search URL patterns
-  const searchUrls = [
-    `https://www.totalwine.com/search/all?text=${encoded}`,
-    `https://www.wine.com/search/${encoded}/`,
-    `https://www.thewhiskyexchange.com/search?q=${encoded}`,
-    `https://www.caskers.com/catalogsearch/result/?q=${encoded}`,
-    `https://www.reservebar.com/search?q=${encoded}`,
-    `https://www.minibardelivery.com/store/search?q=${encoded}`,
-  ];
-
-  for (const searchUrl of searchUrls) {
-    try {
-      console.log(`[Retailer] Searching: ${searchUrl.slice(0, 80)}`);
-      const res = await fetch(searchUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-        signal: AbortSignal.timeout(8000),
-        redirect: "follow",
-      });
-
-      if (!res.ok) continue;
-      const html = await res.text();
-      const images = extractProductImages(html, searchUrl);
-
-      for (const imgUrl of images.slice(0, 3)) {
-        const buf = await downloadImage(imgUrl);
-        if (buf) {
-          console.log(`[Retailer] Got image from: ${new URL(searchUrl).hostname}`);
-          return buf;
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-
   return null;
 }
 
-// ─── Strategy 2: Gemini Search Grounding → find product pages → scrape ───
+// ─── Strategy 2: UPC Item DB ──────────────────────────────────────────────
+// Free trial API — 100 requests/day, returns product images
+async function searchUpcItemDb(product: ProductIdentification): Promise<Buffer | null> {
+  try {
+    const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
+    console.log(`[UPCDB] Searching: ${query}`);
+
+    const url = `https://api.upcitemdb.com/prod/trial/search?s=${encodeURIComponent(query)}&match_mode=0&type=product`;
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) {
+      console.log(`[UPCDB] HTTP ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const items = data.items || [];
+    console.log(`[UPCDB] Found ${items.length} results`);
+
+    for (const item of items) {
+      const images: string[] = item.images || [];
+      for (const imgUrl of images.slice(0, 3)) {
+        const buf = await downloadImage(imgUrl);
+        if (buf) {
+          console.log(`[UPCDB] SUCCESS: ${buf.length} bytes`);
+          return buf;
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[UPCDB] Exception:", error);
+  }
+  return null;
+}
+
+// ─── Strategy 3: Gemini grounding → direct image URLs from CDNs ──────────
+// Ask Gemini to find direct image URLs (not pages to scrape)
 async function searchWithGrounding(product: ProductIdentification): Promise<Buffer | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -214,11 +173,17 @@ async function searchWithGrounding(product: ProductIdentification): Promise<Buff
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Where can I buy "${query}" online? List the URLs to product pages on retailer websites like totalwine.com, wine.com, drizly.com, thewhiskyexchange.com, etc.`
+              text: `I need a product image URL for: "${query}"
+
+Search for this product and find direct image URLs (CDN links ending in .jpg, .png, or .webp) showing this specific product.
+
+Look on sites like totalwine.com, wine.com, drizly.com, vivino.com, thewhiskyexchange.com.
+
+Return ONLY the direct image URLs, one per line. No other text.`
             }]
           }],
           tools: [{ googleSearch: {} }],
-          generationConfig: { maxOutputTokens: 800 },
+          generationConfig: { maxOutputTokens: 500 },
         }),
         signal: AbortSignal.timeout(15000),
       }
@@ -230,72 +195,104 @@ async function searchWithGrounding(product: ProductIdentification): Promise<Buff
     }
 
     const data = await res.json();
-    const urls: string[] = [];
+    const allUrls: string[] = [];
 
-    // From response text
+    // Extract URLs from response text
     const parts = data.candidates?.[0]?.content?.parts;
     if (parts?.length) {
       const responseText = parts.map((p: any) => p.text || "").join(" ");
       console.log(`[Grounding] Response: ${responseText.slice(0, 300)}`);
-      const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)\]]+/gi) || [];
-      urls.push(...textUrls);
+      const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)\],]+/gi) || [];
+      allUrls.push(...textUrls);
     }
 
-    // From grounding metadata chunks
+    // Extract URLs from grounding metadata
     const grounding = data.candidates?.[0]?.groundingMetadata;
-    if (grounding) {
-      if (grounding.groundingChunks) {
-        for (const chunk of grounding.groundingChunks) {
-          if (chunk.web?.uri) urls.push(chunk.web.uri);
-        }
+    if (grounding?.groundingChunks) {
+      for (const chunk of grounding.groundingChunks) {
+        if (chunk.web?.uri) allUrls.push(chunk.web.uri);
       }
-      if (grounding.searchEntryPoint?.renderedContent) {
-        const hrefMatches = grounding.searchEntryPoint.renderedContent.match(/href="(https?:\/\/[^"]+)"/gi) || [];
-        for (const h of hrefMatches) {
-          const m = h.match(/href="([^"]+)"/);
-          if (m) urls.push(m[1]);
-        }
-      }
-      console.log(`[Grounding] Metadata keys: ${Object.keys(grounding).join(", ")}`);
     }
 
-    // Deduplicate, filter google.com
-    const uniqueUrls = [...new Set(urls)].filter(u =>
-      !u.includes("google.com/search") && !u.includes("google.com/url")
+    // Filter to image URLs and product pages
+    const imageUrls = allUrls.filter(u =>
+      /\.(jpg|jpeg|png|webp)(\?|$)/i.test(u) &&
+      !u.includes("logo") && !u.includes("icon") && !u.includes("banner")
     );
-    console.log(`[Grounding] Found ${uniqueUrls.length} unique URLs`);
+    const pageUrls = allUrls.filter(u =>
+      !imageUrls.includes(u) &&
+      !u.includes("google.com") &&
+      (u.includes("totalwine.com") || u.includes("wine.com") || u.includes("drizly.com") ||
+       u.includes("vivino.com") || u.includes("thewhiskyexchange.com") || u.includes("caskers.com") ||
+       u.includes("reservebar.com") || u.includes("minibar"))
+    );
 
-    // Fetch each page and extract product images
-    for (const pageUrl of uniqueUrls.slice(0, 5)) {
+    console.log(`[Grounding] Image URLs: ${imageUrls.length}, Page URLs: ${pageUrls.length}`);
+
+    // Try direct image URLs first
+    for (const imgUrl of imageUrls.slice(0, 5)) {
+      console.log(`[Grounding] Trying image: ${imgUrl.slice(0, 100)}`);
+      const buf = await downloadImage(imgUrl);
+      if (buf) {
+        console.log(`[Grounding] SUCCESS from direct image URL`);
+        return buf;
+      }
+    }
+
+    // Try extracting og:image from product pages
+    for (const pageUrl of pageUrls.slice(0, 3)) {
       try {
-        // Direct image URL?
-        if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(pageUrl)) {
-          const buf = await downloadImage(pageUrl);
-          if (buf) return buf;
-          continue;
-        }
-
-        console.log(`[Grounding] Fetching: ${pageUrl.slice(0, 100)}`);
+        console.log(`[Grounding] Trying page: ${pageUrl.slice(0, 100)}`);
         const pageRes = await fetch(pageUrl, {
           headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "text/html",
           },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(6000),
           redirect: "follow",
         });
-
         if (!pageRes.ok) continue;
-        const html = await pageRes.text();
-        const images = extractProductImages(html, pageUrl);
-        console.log(`[Grounding] Found ${images.length} images on ${new URL(pageUrl).hostname}`);
 
-        for (const imgUrl of images.slice(0, 3)) {
-          const buf = await downloadImage(imgUrl);
+        const html = await pageRes.text();
+
+        // Only use og:image if it looks like a product image (not a site logo/banner)
+        const ogMatch = html.match(/<meta\s+(?:property|content)="og:image"\s+(?:content|property)="([^"]+)"/i)
+          || html.match(/<meta\s+(?:property)="og:image"\s+content="([^"]+)"/i)
+          || html.match(/content="([^"]+)"\s+property="og:image"/i);
+
+        if (ogMatch?.[1]) {
+          const ogUrl = ogMatch[1];
+          // Reject if it's clearly a site-wide banner/logo
+          if (ogUrl.includes("logo") || ogUrl.includes("banner") || ogUrl.includes("hero") ||
+              ogUrl.includes("social-share") || ogUrl.includes("og-default")) {
+            console.log(`[Grounding] Skipping site banner: ${ogUrl.slice(0, 80)}`);
+            continue;
+          }
+          const buf = await downloadImage(ogUrl);
           if (buf) {
-            console.log(`[Grounding] Got image from: ${pageUrl.slice(0, 80)}`);
+            console.log(`[Grounding] SUCCESS from og:image`);
             return buf;
           }
+        }
+
+        // Try JSON-LD Product schema
+        const ldBlocks = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
+        for (const block of ldBlocks) {
+          try {
+            const content = block.replace(/<\/?script[^>]*>/gi, "");
+            const parsed = JSON.parse(content);
+            const items = Array.isArray(parsed) ? parsed : [parsed];
+            for (const item of items) {
+              if (!item["@type"]?.toString().includes("Product")) continue;
+              const img = typeof item.image === "string" ? item.image :
+                Array.isArray(item.image) ? item.image[0] :
+                item.image?.url || item.image?.contentUrl;
+              if (img) {
+                const buf = await downloadImage(img);
+                if (buf) return buf;
+              }
+            }
+          } catch { /* skip */ }
         }
       } catch {
         continue;
@@ -309,73 +306,74 @@ async function searchWithGrounding(product: ProductIdentification): Promise<Buff
   }
 }
 
-// ─── Strategy 3: Google Custom Search Images (if configured) ──────────────
-// Uses Google Programmable Search Engine for direct image results
+// ─── Strategy 4: Google Custom Search Images (if configured) ──────────────
 async function searchGoogleImages(product: ProductIdentification): Promise<Buffer | null> {
   const apiKey = process.env.GOOGLE_CSE_API_KEY || process.env.GEMINI_API_KEY;
   const cseId = process.env.GOOGLE_CSE_ID;
   if (!apiKey || !cseId) return null;
 
   try {
-    const query = `${product.brand} ${product.name} ${product.size || ""} bottle product photo`;
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query)}&searchType=image&num=5&imgSize=large`;
+    const query = `${product.brand} ${product.name} ${product.size || ""} product photo`;
+    console.log(`[GoogleCSE] Searching: ${query}`);
 
-    console.log(`[GoogleCSE] Searching images for: ${query}`);
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query)}&searchType=image&num=5&imgSize=large`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) {
-      console.error(`[GoogleCSE] HTTP ${res.status}`);
-      return null;
-    }
+    if (!res.ok) return null;
 
     const data = await res.json();
     for (const item of data.items || []) {
       if (!item.link) continue;
       const buf = await downloadImage(item.link);
       if (buf) {
-        console.log(`[GoogleCSE] Got image: ${item.link.slice(0, 80)}`);
+        console.log(`[GoogleCSE] SUCCESS: ${item.link.slice(0, 80)}`);
         return buf;
       }
     }
   } catch (error) {
     console.error("[GoogleCSE] Exception:", error);
   }
-
   return null;
 }
 
 // ─── Main Image Pipeline ──────────────────────────────────────────────────
-// Priority: Real product photos > Camera photo > Nothing
-// We do NOT use AI image generation — it produces wrong/hallucinated products
 async function findProductImage(product: ProductIdentification): Promise<{ buffer: Buffer; ext: string } | null> {
-  // Run web search strategies in parallel
-  const [retailerResult, groundingResult, cseResult] = await Promise.allSettled([
-    searchRetailers(product),
+  // Run all strategies in parallel
+  const [offResult, upcResult, groundingResult, cseResult] = await Promise.allSettled([
+    searchOpenFoodFacts(product),
+    searchUpcItemDb(product),
     searchWithGrounding(product),
     searchGoogleImages(product),
   ]);
 
-  // Priority 1: Direct retailer scrape (most reliable for exact match)
-  const retailerImg = retailerResult.status === "fulfilled" ? retailerResult.value : null;
-  if (retailerImg) {
-    console.log(`[Pipeline] Using retailer image (${retailerImg.length} bytes)`);
-    return { buffer: retailerImg, ext: "jpg" };
+  // Priority 1: Open Food Facts (verified product database, exact matches)
+  const offImg = offResult.status === "fulfilled" ? offResult.value : null;
+  if (offImg) {
+    console.log(`[Pipeline] Using Open Food Facts image`);
+    return { buffer: offImg, ext: "jpg" };
   }
 
-  // Priority 2: Grounding-based search
+  // Priority 2: UPC Item DB (product database with images)
+  const upcImg = upcResult.status === "fulfilled" ? upcResult.value : null;
+  if (upcImg) {
+    console.log(`[Pipeline] Using UPC Item DB image`);
+    return { buffer: upcImg, ext: "jpg" };
+  }
+
+  // Priority 3: Grounding search (Google-sourced image URLs)
   const groundingImg = groundingResult.status === "fulfilled" ? groundingResult.value : null;
   if (groundingImg) {
-    console.log(`[Pipeline] Using grounding image (${groundingImg.length} bytes)`);
+    console.log(`[Pipeline] Using grounding image`);
     return { buffer: groundingImg, ext: "jpg" };
   }
 
-  // Priority 3: Google Custom Search (if configured)
+  // Priority 4: Google Custom Search (if configured)
   const cseImg = cseResult.status === "fulfilled" ? cseResult.value : null;
   if (cseImg) {
-    console.log(`[Pipeline] Using Google CSE image (${cseImg.length} bytes)`);
+    console.log(`[Pipeline] Using Google CSE image`);
     return { buffer: cseImg, ext: "jpg" };
   }
 
-  console.log("[Pipeline] No real product image found");
+  console.log("[Pipeline] No product image found from any source");
   return null;
 }
 
@@ -412,7 +410,7 @@ export async function POST(request: NextRequest) {
       const result = await findProductImage(product);
       if (!result) {
         return NextResponse.json(
-          { success: false, error: "Could not find a product image from any retailer" } satisfies ApiResponse,
+          { success: false, error: "Could not find a product image" } satisfies ApiResponse,
           { status: 422 }
         );
       }
@@ -422,7 +420,7 @@ export async function POST(request: NextRequest) {
 
       if (!imageUrl) {
         return NextResponse.json(
-          { success: false, error: "Image found but upload to storage failed" } satisfies ApiResponse,
+          { success: false, error: "Image found but upload failed" } satisfies ApiResponse,
           { status: 500 }
         );
       }
@@ -482,13 +480,13 @@ Return ONLY valid JSON (no markdown, no code fences):
     const fileBase = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     let imageUrl: string | null = null;
 
-    // Try to find a real product photo from retailers
+    // Try to find a real product photo
     const result = await findProductImage(product);
     if (result) {
       imageUrl = await uploadToSupabase(result.buffer, `${fileBase}.${result.ext}`, `image/${result.ext}`);
     }
 
-    // Fallback: upload the user's camera photo (it's a real photo of the product!)
+    // Fallback: upload the user's camera photo (always a real photo of the product)
     if (!imageUrl) {
       const rawBuffer = Buffer.from(base64Data, "base64");
       imageUrl = await uploadToSupabase(rawBuffer, `${fileBase}_raw.jpg`, "image/jpeg");
