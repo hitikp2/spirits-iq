@@ -916,16 +916,16 @@ export default function POSPage() {
                     )}
 
                     {/* Product image with refresh button */}
-                    <div className="relative w-full h-20 rounded-lg overflow-hidden bg-surface-800 -mt-0.5 mb-0.5">
+                    <div className="relative w-full h-20 rounded-lg overflow-hidden bg-white -mt-0.5 mb-0.5">
                       {product.imageUrl ? (
                         <img
                           src={product.imageUrl}
                           alt={product.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-contain p-1"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">
+                        <div className="w-full h-full flex items-center justify-center text-2xl opacity-30 bg-surface-800">
                           {product.category?.icon || "📦"}
                         </div>
                       )}
