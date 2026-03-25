@@ -208,19 +208,74 @@ Requirements:
 // POST /api/product-identify — AI-powered product identification from photo
 export async function POST(request: NextRequest) {
   try {
-    const { imageBase64, barcode } = await request.json();
-
-    if (!imageBase64 || typeof imageBase64 !== "string") {
-      return NextResponse.json(
-        { success: false, error: "imageBase64 is required" } satisfies ApiResponse,
-        { status: 400 }
-      );
-    }
+    const body = await request.json();
+    const { action } = body;
 
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
         { success: false, error: "AI not configured" } satisfies ApiResponse,
         { status: 503 }
+      );
+    }
+
+    // ─── Action: refresh-image — find a professional photo for an existing product ───
+    if (action === "refresh-image") {
+      const { productId, name, brand, size } = body;
+      if (!productId || !name) {
+        return NextResponse.json(
+          { success: false, error: "productId and name are required" } satisfies ApiResponse,
+          { status: 400 }
+        );
+      }
+
+      const product: ProductIdentification = {
+        name, brand: brand || "", category: "", size: size || "",
+        abv: "", retailPrice: 0, costPrice: 0, description: "", isAgeRestricted: false,
+      };
+
+      const fileBase = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let imageUrl: string | null = null;
+
+      // Try 1: Real photo via Gemini + Google Search grounding
+      const foundUrl = await findProductImageUrl(product);
+      if (foundUrl) {
+        const downloaded = await downloadImage(foundUrl);
+        if (downloaded) {
+          const ext = downloaded.contentType.includes("png") ? "png" : "jpg";
+          imageUrl = await uploadToSupabase(downloaded.buffer, `${fileBase}.${ext}`, downloaded.contentType);
+        }
+      }
+
+      // Try 2: AI-generated product image
+      if (!imageUrl) {
+        const generatedBase64 = await generateProductImage(product);
+        if (generatedBase64) {
+          const buffer = Buffer.from(generatedBase64, "base64");
+          imageUrl = await uploadToSupabase(buffer, `${fileBase}_ai.png`, "image/png");
+        }
+      }
+
+      if (!imageUrl) {
+        return NextResponse.json(
+          { success: false, error: "Could not find a product image" } satisfies ApiResponse,
+          { status: 422 }
+        );
+      }
+
+      // Update the product in the database
+      const { db } = await import("@/lib/db");
+      await db.product.update({ where: { id: productId }, data: { imageUrl } });
+
+      return NextResponse.json({ success: true, data: { productId, imageUrl } } satisfies ApiResponse);
+    }
+
+    // ─── Default action: identify product from camera photo ───
+    const { imageBase64, barcode } = body;
+
+    if (!imageBase64 || typeof imageBase64 !== "string") {
+      return NextResponse.json(
+        { success: false, error: "imageBase64 is required" } satisfies ApiResponse,
+        { status: 400 }
       );
     }
 

@@ -367,6 +367,41 @@ export default function POSPage() {
   // Scanner modal
   const [scannerOpen, setScannerOpen] = useState(false);
 
+  // Image refresh state — tracks which product IDs are currently refreshing
+  const [refreshingImages, setRefreshingImages] = useState<Set<string>>(new Set());
+
+  const refreshProductImage = useCallback(async (product: Product) => {
+    setRefreshingImages((prev) => new Set(prev).add(product.id));
+    try {
+      const res = await fetch("/api/product-identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "refresh-image",
+          productId: product.id,
+          name: product.name,
+          brand: product.brand,
+          size: product.size,
+        }),
+      });
+      const json = await res.json();
+      if (json.success && json.data?.imageUrl) {
+        queryClient.invalidateQueries({ queryKey: ["inventory"] });
+        toast.success("Product photo updated");
+      } else {
+        toast.error(json.error || "Could not find a product image");
+      }
+    } catch {
+      toast.error("Failed to refresh image");
+    } finally {
+      setRefreshingImages((prev) => {
+        const next = new Set(prev);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  }, [queryClient]);
+
   // Checkout modal
   const [checkoutOpen, setCheckoutOpen] = useState(false);
 
@@ -880,17 +915,43 @@ export default function POSPage() {
                       </span>
                     )}
 
-                    {/* Product image */}
-                    {product.imageUrl && (
-                      <div className="w-full h-20 rounded-lg overflow-hidden bg-surface-800 -mt-0.5 mb-0.5">
+                    {/* Product image with refresh button */}
+                    <div className="relative w-full h-20 rounded-lg overflow-hidden bg-surface-800 -mt-0.5 mb-0.5">
+                      {product.imageUrl ? (
                         <img
                           src={product.imageUrl}
                           alt={product.name}
                           className="w-full h-full object-cover"
                           loading="lazy"
                         />
-                      </div>
-                    )}
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">
+                          {product.category?.icon || "📦"}
+                        </div>
+                      )}
+                      {/* Refresh photo button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!refreshingImages.has(product.id)) refreshProductImage(product);
+                        }}
+                        disabled={refreshingImages.has(product.id)}
+                        className="absolute bottom-1 right-1 w-6 h-6 rounded-md bg-black/60 backdrop-blur-sm flex items-center justify-center text-white/70 hover:text-white hover:bg-black/80 transition-all active:scale-90"
+                        title="Find professional photo"
+                      >
+                        {refreshingImages.has(product.id) ? (
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
 
                     {/* Top: name + stock */}
                     <div className="flex justify-between items-start">
