@@ -57,383 +57,8 @@ async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: s
   return `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${fileName}`;
 }
 
-// ─── Discover available image generation models ──────────────────────────
-interface DiscoveredModels {
-  gemini: string[];  // Use generateContent endpoint
-  imagen: string[];  // Use predict/generateImages endpoint
-}
-
-let cachedModels: DiscoveredModels | null = null;
-let cacheTime = 0;
-
-async function discoverImageModels(apiKey: string): Promise<DiscoveredModels> {
-  if (cachedModels && Date.now() - cacheTime < 3600000) return cachedModels;
-
-  const result: DiscoveredModels = { gemini: [], imagen: [] };
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (!res.ok) {
-      console.error("[Discovery] listModels failed:", res.status);
-      return result;
-    }
-
-    const data = await res.json();
-
-    for (const m of data.models || []) {
-      const name: string = m.name?.replace("models/", "") || "";
-      const methods: string[] = m.supportedGenerationMethods || [];
-      const desc: string = (m.description || "").toLowerCase();
-
-      const isImageCapable = name.includes("image") || name.includes("imagen") ||
-        desc.includes("image generation") || desc.includes("generate images");
-
-      if (!isImageCapable) continue;
-
-      if (name.startsWith("imagen")) {
-        // Imagen models use predict/generateImages endpoints
-        if (methods.includes("predict") || methods.includes("generateImages")) {
-          result.imagen.push(name);
-        }
-      } else {
-        // Gemini models use generateContent
-        if (methods.includes("generateContent")) {
-          result.gemini.push(name);
-        }
-      }
-    }
-
-    // Sort: prefer "generate" over "fast", prefer higher versions
-    result.imagen.sort((a, b) => {
-      if (a.includes("ultra")) return -1;
-      if (b.includes("ultra")) return 1;
-      if (a.includes("fast")) return 1;
-      if (b.includes("fast")) return -1;
-      return b.localeCompare(a);
-    });
-
-    console.log("[Discovery] Gemini image models:", result.gemini.length ? result.gemini.join(", ") : "NONE");
-    console.log("[Discovery] Imagen models:", result.imagen.length ? result.imagen.join(", ") : "NONE");
-
-    cachedModels = result;
-    cacheTime = Date.now();
-  } catch (error) {
-    console.error("[Discovery] Exception:", error);
-  }
-
-  return result;
-}
-
-// ─── Strategy 1: Gemini Native Image Generation ──────────────────────────
-async function generateImageWithGemini(product: ProductIdentification): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  const prompt = `Generate a professional product photo for an e-commerce listing:
-
-Product: ${product.name}
-Brand: ${product.brand}
-Size: ${product.size || "standard"}
-
-STRICT requirements:
-- Pure white background (#FFFFFF)
-- Show the actual retail product packaging/bottle/can exactly as sold in stores
-- Clean studio photography lighting, no shadows
-- Product perfectly centered, filling ~70% of frame
-- NO text overlays, NO watermarks, NO extra objects
-- NO hands, NO props, NO surfaces — just the product floating on white
-- Square 1:1 aspect ratio`;
-
-  // Only try Gemini models (not imagen-*) via generateContent
-  const discovered = await discoverImageModels(apiKey);
-  const models = [...new Set([
-    ...discovered.gemini,
-    "gemini-2.5-flash-preview-image-generation",
-    "gemini-2.0-flash-preview-image-generation",
-  ])];
-
-  for (const model of models) {
-    try {
-      console.log(`[ImageGen] Trying: ${model}`);
-
-      // Try generateContent (for gemini-* models)
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseModalities: ["IMAGE", "TEXT"],
-              maxOutputTokens: 4096,
-            },
-          }),
-          signal: AbortSignal.timeout(30000),
-        }
-      );
-
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error(`[ImageGen] ${model} → ${res.status}: ${errText.slice(0, 150)}`);
-        continue;
-      }
-
-      const data = await res.json();
-      const parts = data.candidates?.[0]?.content?.parts;
-      if (!parts?.length) {
-        console.error(`[ImageGen] ${model}: empty response`);
-        continue;
-      }
-
-      for (const part of parts) {
-        if (part.inlineData?.data) {
-          console.log(`[ImageGen] SUCCESS with ${model}`);
-          return part.inlineData.data;
-        }
-      }
-      console.error(`[ImageGen] ${model}: response had no image data`);
-    } catch (error: any) {
-      console.error(`[ImageGen] ${model} exception:`, error?.message || error);
-    }
-  }
-
-  return null;
-}
-
-// ─── Strategy 2: Imagen via predict/generateImages endpoints ─────────────
-async function generateImageWithImagen(product: ProductIdentification): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  const prompt = `Professional product photo on pure white background: ${product.brand} ${product.name} ${product.size || ""} bottle/can/package as sold in US liquor stores. Studio lighting, centered, no props.`;
-
-  // Use discovered Imagen models first, then hardcoded fallbacks
-  const discovered = await discoverImageModels(apiKey);
-  const models = [...new Set([
-    ...discovered.imagen,
-    "imagen-4.0-generate-001",
-    "imagen-4.0-ultra-generate-001",
-    "imagen-4.0-fast-generate-001",
-    "imagen-3.0-generate-002",
-  ])];
-  const endpoints = ["predict", "generateImages"]; // Try both endpoint formats
-
-  for (const model of models) {
-    for (const endpoint of endpoints) {
-      try {
-        console.log(`[Imagen] Trying: ${model} via :${endpoint}`);
-
-        const bodyByEndpoint: Record<string, any> = {
-          predict: {
-            instances: [{ prompt }],
-            parameters: { sampleCount: 1, aspectRatio: "1:1" },
-          },
-          generateImages: {
-            prompt,
-            config: { numberOfImages: 1 },
-          },
-        };
-
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(bodyByEndpoint[endpoint]),
-            signal: AbortSignal.timeout(30000),
-          }
-        );
-
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error(`[Imagen] ${model}:${endpoint} → ${res.status}: ${errText.slice(0, 150)}`);
-          continue;
-        }
-
-        const data = await res.json();
-
-        // predict format
-        if (data.predictions?.[0]?.bytesBase64Encoded) {
-          console.log(`[Imagen] SUCCESS with ${model}:${endpoint}`);
-          return data.predictions[0].bytesBase64Encoded;
-        }
-        // generateImages format
-        if (data.generatedImages?.[0]?.image?.imageBytes) {
-          console.log(`[Imagen] SUCCESS with ${model}:${endpoint}`);
-          return data.generatedImages[0].image.imageBytes;
-        }
-
-        console.error(`[Imagen] ${model}:${endpoint}: unexpected response`, JSON.stringify(data).slice(0, 200));
-      } catch (error: any) {
-        console.error(`[Imagen] ${model}:${endpoint} exception:`, error?.message || error);
-      }
-    }
-  }
-
-  return null;
-}
-
-// ─── Strategy 3: Gemini Search Grounding → Scrape page for images ────────
-async function findAndDownloadProductImage(product: ProductIdentification): Promise<Buffer | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
-    console.log(`[Grounding] Searching for: ${query}`);
-
-    // Use Google Search grounding with dynamic retrieval to get source URLs
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Where can I buy "${query}" online? Give me the full URLs to the product pages.`
-            }]
-          }],
-          tools: [{
-            googleSearch: {}
-          }],
-          generationConfig: { maxOutputTokens: 800 },
-        }),
-        signal: AbortSignal.timeout(15000),
-      }
-    );
-
-    if (!res.ok) {
-      console.error(`[Grounding] HTTP ${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-
-    // Collect ALL URLs from every possible location
-    const urls: string[] = [];
-
-    // From response text
-    const parts = data.candidates?.[0]?.content?.parts;
-    if (parts?.length) {
-      const responseText = parts.map((p: any) => p.text || "").join(" ");
-      console.log(`[Grounding] Response: ${responseText.slice(0, 400)}`);
-      const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)\]]+/gi) || [];
-      urls.push(...textUrls);
-    }
-
-    // From grounding metadata — this is where the source URLs live
-    const grounding = data.candidates?.[0]?.groundingMetadata;
-    if (grounding) {
-      // groundingChunks contain the actual source URLs
-      if (grounding.groundingChunks) {
-        for (const chunk of grounding.groundingChunks) {
-          if (chunk.web?.uri) {
-            console.log(`[Grounding] Chunk URL: ${chunk.web.uri}`);
-            urls.push(chunk.web.uri);
-          }
-        }
-      }
-      // searchEntryPoint may contain rendered HTML with URLs
-      if (grounding.searchEntryPoint?.renderedContent) {
-        const hrefMatches = grounding.searchEntryPoint.renderedContent.match(/href="(https?:\/\/[^"]+)"/gi) || [];
-        for (const h of hrefMatches) {
-          const m = h.match(/href="([^"]+)"/);
-          if (m) urls.push(m[1]);
-        }
-      }
-      // Log what metadata keys we got for debugging
-      console.log(`[Grounding] Metadata keys: ${Object.keys(grounding).join(", ")}`);
-    } else {
-      console.log("[Grounding] No grounding metadata in response");
-      // Dump full response for debugging
-      console.log("[Grounding] Full response:", JSON.stringify(data).slice(0, 500));
-    }
-
-    // Deduplicate and filter out google.com URLs
-    const uniqueUrls = [...new Set(urls)].filter(u => !u.includes("google.com/search"));
-    console.log(`[Grounding] Found ${uniqueUrls.length} unique URLs`);
-
-    // For each product page URL, fetch it and extract og:image or product image
-    for (const pageUrl of uniqueUrls.slice(0, 5)) {
-      try {
-        console.log(`[Grounding] Fetching page: ${pageUrl.slice(0, 100)}`);
-
-        // First check if URL is already a direct image
-        if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(pageUrl)) {
-          const imgBuf = await downloadImageDirect(pageUrl);
-          if (imgBuf) return imgBuf;
-          continue;
-        }
-
-        // Fetch the page HTML and extract og:image
-        const pageRes = await fetch(pageUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-          },
-          signal: AbortSignal.timeout(8000),
-          redirect: "follow",
-        });
-
-        if (!pageRes.ok) {
-          console.log(`[Grounding] Page ${pageRes.status}: ${pageUrl.slice(0, 60)}`);
-          continue;
-        }
-
-        const html = await pageRes.text();
-
-        // Extract image URLs from HTML (og:image, product images, etc.)
-        const imageUrls: string[] = [];
-
-        // og:image meta tag (most reliable for product pages)
-        const ogMatch = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i)
-          || html.match(/content="([^"]+)"\s+(?:property|name)="og:image"/i);
-        if (ogMatch) imageUrls.push(ogMatch[1]);
-
-        // twitter:image
-        const twMatch = html.match(/<meta\s+(?:property|name)="twitter:image"\s+content="([^"]+)"/i)
-          || html.match(/content="([^"]+)"\s+(?:property|name)="twitter:image"/i);
-        if (twMatch) imageUrls.push(twMatch[1]);
-
-        // JSON-LD product image
-        const jsonLdMatch = html.match(/"image"\s*:\s*"(https?:\/\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/gi);
-        if (jsonLdMatch) {
-          for (const m of jsonLdMatch) {
-            const urlM = m.match(/"(https?:\/\/[^"]+)"/);
-            if (urlM) imageUrls.push(urlM[1]);
-          }
-        }
-
-        console.log(`[Grounding] Found ${imageUrls.length} image URLs on page`);
-
-        // Try downloading each image
-        for (const imgUrl of imageUrls.slice(0, 3)) {
-          const buf = await downloadImageDirect(imgUrl);
-          if (buf) {
-            console.log(`[Grounding] Got image from: ${pageUrl.slice(0, 60)}`);
-            return buf;
-          }
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    console.log("[Grounding] All attempts failed");
-    return null;
-  } catch (error) {
-    console.error("[Grounding] Exception:", error);
-    return null;
-  }
-}
-
-// Download a direct image URL
-async function downloadImageDirect(url: string): Promise<Buffer | null> {
+// ─── Download image from URL ──────────────────────────────────────────────
+async function downloadImage(url: string, minBytes = 3000): Promise<Buffer | null> {
   try {
     const res = await fetch(url, {
       headers: {
@@ -446,51 +71,311 @@ async function downloadImageDirect(url: string): Promise<Buffer | null> {
     });
 
     if (!res.ok) return null;
-
     const ct = res.headers.get("content-type") || "";
     if (!ct.startsWith("image/")) return null;
 
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 3000 || buf.length > 5 * 1024 * 1024) return null;
-
-    console.log(`[Download] OK: ${buf.length}b from ${url.slice(0, 80)}`);
+    if (buf.length < minBytes || buf.length > 5 * 1024 * 1024) return null;
     return buf;
   } catch {
     return null;
   }
 }
 
-// ─── Main Pipeline ───────────────────────────────────────────────────────
+// ─── Extract product images from retailer HTML ────────────────────────────
+function extractProductImages(html: string, baseUrl: string): string[] {
+  const images: string[] = [];
+
+  // og:image — most reliable for product pages
+  const ogPatterns = [
+    /<meta\s+property="og:image"\s+content="([^"]+)"/i,
+    /<meta\s+content="([^"]+)"\s+property="og:image"/i,
+    /<meta\s+name="og:image"\s+content="([^"]+)"/i,
+  ];
+  for (const pat of ogPatterns) {
+    const m = html.match(pat);
+    if (m?.[1]) { images.push(m[1]); break; }
+  }
+
+  // twitter:image
+  const twPatterns = [
+    /<meta\s+(?:property|name)="twitter:image"\s+content="([^"]+)"/i,
+    /<meta\s+content="([^"]+)"\s+(?:property|name)="twitter:image"/i,
+  ];
+  for (const pat of twPatterns) {
+    const m = html.match(pat);
+    if (m?.[1]) { images.push(m[1]); break; }
+  }
+
+  // JSON-LD structured data — Product schema with image
+  const jsonLdBlocks = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (const block of jsonLdBlocks) {
+    try {
+      const content = block.replace(/<\/?script[^>]*>/gi, "");
+      const parsed = JSON.parse(content);
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of items) {
+        if (item["@type"] === "Product" || item["@type"]?.includes("Product")) {
+          const img = item.image;
+          if (typeof img === "string") images.push(img);
+          else if (Array.isArray(img) && typeof img[0] === "string") images.push(img[0]);
+          else if (img?.url) images.push(img.url);
+          else if (img?.contentUrl) images.push(img.contentUrl);
+        }
+      }
+    } catch { /* skip invalid JSON-LD */ }
+  }
+
+  // Large product images from img tags (common patterns in retailer pages)
+  const imgMatches = html.match(/<img[^>]+src="(https?:\/\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/gi) || [];
+  for (const tag of imgMatches.slice(0, 20)) {
+    const srcMatch = tag.match(/src="([^"]+)"/);
+    if (!srcMatch) continue;
+    const src = srcMatch[1];
+    // Prefer large product images — skip tiny icons, avatars, logos
+    if (src.includes("logo") || src.includes("icon") || src.includes("avatar")) continue;
+    if (src.includes("product") || src.includes("bottle") || src.includes("item")) {
+      images.push(src);
+    }
+  }
+
+  // Resolve relative URLs
+  return images.map(url => {
+    if (url.startsWith("//")) return "https:" + url;
+    if (url.startsWith("/")) {
+      try { return new URL(url, baseUrl).href; } catch { return url; }
+    }
+    return url;
+  }).filter(url => url.startsWith("http"));
+}
+
+// ─── Strategy 1: Direct retailer search + scrape ─────────────────────────
+// Search known liquor retailers directly by constructing search URLs
+async function searchRetailers(product: ProductIdentification): Promise<Buffer | null> {
+  const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
+  const encoded = encodeURIComponent(query);
+
+  // Retailers with predictable search URL patterns
+  const searchUrls = [
+    `https://www.totalwine.com/search/all?text=${encoded}`,
+    `https://www.wine.com/search/${encoded}/`,
+    `https://www.thewhiskyexchange.com/search?q=${encoded}`,
+    `https://www.caskers.com/catalogsearch/result/?q=${encoded}`,
+    `https://www.reservebar.com/search?q=${encoded}`,
+    `https://www.minibardelivery.com/store/search?q=${encoded}`,
+  ];
+
+  for (const searchUrl of searchUrls) {
+    try {
+      console.log(`[Retailer] Searching: ${searchUrl.slice(0, 80)}`);
+      const res = await fetch(searchUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        signal: AbortSignal.timeout(8000),
+        redirect: "follow",
+      });
+
+      if (!res.ok) continue;
+      const html = await res.text();
+      const images = extractProductImages(html, searchUrl);
+
+      for (const imgUrl of images.slice(0, 3)) {
+        const buf = await downloadImage(imgUrl);
+        if (buf) {
+          console.log(`[Retailer] Got image from: ${new URL(searchUrl).hostname}`);
+          return buf;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+// ─── Strategy 2: Gemini Search Grounding → find product pages → scrape ───
+async function searchWithGrounding(product: ProductIdentification): Promise<Buffer | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
+    console.log(`[Grounding] Searching for: ${query}`);
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Where can I buy "${query}" online? List the URLs to product pages on retailer websites like totalwine.com, wine.com, drizly.com, thewhiskyexchange.com, etc.`
+            }]
+          }],
+          tools: [{ googleSearch: {} }],
+          generationConfig: { maxOutputTokens: 800 },
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+
+    if (!res.ok) {
+      console.error(`[Grounding] HTTP ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const urls: string[] = [];
+
+    // From response text
+    const parts = data.candidates?.[0]?.content?.parts;
+    if (parts?.length) {
+      const responseText = parts.map((p: any) => p.text || "").join(" ");
+      console.log(`[Grounding] Response: ${responseText.slice(0, 300)}`);
+      const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)\]]+/gi) || [];
+      urls.push(...textUrls);
+    }
+
+    // From grounding metadata chunks
+    const grounding = data.candidates?.[0]?.groundingMetadata;
+    if (grounding) {
+      if (grounding.groundingChunks) {
+        for (const chunk of grounding.groundingChunks) {
+          if (chunk.web?.uri) urls.push(chunk.web.uri);
+        }
+      }
+      if (grounding.searchEntryPoint?.renderedContent) {
+        const hrefMatches = grounding.searchEntryPoint.renderedContent.match(/href="(https?:\/\/[^"]+)"/gi) || [];
+        for (const h of hrefMatches) {
+          const m = h.match(/href="([^"]+)"/);
+          if (m) urls.push(m[1]);
+        }
+      }
+      console.log(`[Grounding] Metadata keys: ${Object.keys(grounding).join(", ")}`);
+    }
+
+    // Deduplicate, filter google.com
+    const uniqueUrls = [...new Set(urls)].filter(u =>
+      !u.includes("google.com/search") && !u.includes("google.com/url")
+    );
+    console.log(`[Grounding] Found ${uniqueUrls.length} unique URLs`);
+
+    // Fetch each page and extract product images
+    for (const pageUrl of uniqueUrls.slice(0, 5)) {
+      try {
+        // Direct image URL?
+        if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(pageUrl)) {
+          const buf = await downloadImage(pageUrl);
+          if (buf) return buf;
+          continue;
+        }
+
+        console.log(`[Grounding] Fetching: ${pageUrl.slice(0, 100)}`);
+        const pageRes = await fetch(pageUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+          signal: AbortSignal.timeout(8000),
+          redirect: "follow",
+        });
+
+        if (!pageRes.ok) continue;
+        const html = await pageRes.text();
+        const images = extractProductImages(html, pageUrl);
+        console.log(`[Grounding] Found ${images.length} images on ${new URL(pageUrl).hostname}`);
+
+        for (const imgUrl of images.slice(0, 3)) {
+          const buf = await downloadImage(imgUrl);
+          if (buf) {
+            console.log(`[Grounding] Got image from: ${pageUrl.slice(0, 80)}`);
+            return buf;
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[Grounding] Exception:", error);
+    return null;
+  }
+}
+
+// ─── Strategy 3: Google Custom Search Images (if configured) ──────────────
+// Uses Google Programmable Search Engine for direct image results
+async function searchGoogleImages(product: ProductIdentification): Promise<Buffer | null> {
+  const apiKey = process.env.GOOGLE_CSE_API_KEY || process.env.GEMINI_API_KEY;
+  const cseId = process.env.GOOGLE_CSE_ID;
+  if (!apiKey || !cseId) return null;
+
+  try {
+    const query = `${product.brand} ${product.name} ${product.size || ""} bottle product photo`;
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query)}&searchType=image&num=5&imgSize=large`;
+
+    console.log(`[GoogleCSE] Searching images for: ${query}`);
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      console.error(`[GoogleCSE] HTTP ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    for (const item of data.items || []) {
+      if (!item.link) continue;
+      const buf = await downloadImage(item.link);
+      if (buf) {
+        console.log(`[GoogleCSE] Got image: ${item.link.slice(0, 80)}`);
+        return buf;
+      }
+    }
+  } catch (error) {
+    console.error("[GoogleCSE] Exception:", error);
+  }
+
+  return null;
+}
+
+// ─── Main Image Pipeline ──────────────────────────────────────────────────
+// Priority: Real product photos > Camera photo > Nothing
+// We do NOT use AI image generation — it produces wrong/hallucinated products
 async function findProductImage(product: ProductIdentification): Promise<{ buffer: Buffer; ext: string } | null> {
-  // Run ALL strategies in parallel
-  const [geminiResult, imagenResult, groundingResult] = await Promise.allSettled([
-    generateImageWithGemini(product),
-    generateImageWithImagen(product),
-    findAndDownloadProductImage(product),
+  // Run web search strategies in parallel
+  const [retailerResult, groundingResult, cseResult] = await Promise.allSettled([
+    searchRetailers(product),
+    searchWithGrounding(product),
+    searchGoogleImages(product),
   ]);
 
-  // Priority 1: Gemini image gen
-  const geminiBase64 = geminiResult.status === "fulfilled" ? geminiResult.value : null;
-  if (geminiBase64) {
-    console.log("[Pipeline] Using Gemini-generated image");
-    return { buffer: Buffer.from(geminiBase64, "base64"), ext: "png" };
+  // Priority 1: Direct retailer scrape (most reliable for exact match)
+  const retailerImg = retailerResult.status === "fulfilled" ? retailerResult.value : null;
+  if (retailerImg) {
+    console.log(`[Pipeline] Using retailer image (${retailerImg.length} bytes)`);
+    return { buffer: retailerImg, ext: "jpg" };
   }
 
-  // Priority 2: Imagen
-  const imagenBase64 = imagenResult.status === "fulfilled" ? imagenResult.value : null;
-  if (imagenBase64) {
-    console.log("[Pipeline] Using Imagen-generated image");
-    return { buffer: Buffer.from(imagenBase64, "base64"), ext: "png" };
+  // Priority 2: Grounding-based search
+  const groundingImg = groundingResult.status === "fulfilled" ? groundingResult.value : null;
+  if (groundingImg) {
+    console.log(`[Pipeline] Using grounding image (${groundingImg.length} bytes)`);
+    return { buffer: groundingImg, ext: "jpg" };
   }
 
-  // Priority 3: Web-sourced image
-  const webImage = groundingResult.status === "fulfilled" ? groundingResult.value : null;
-  if (webImage) {
-    console.log("[Pipeline] Using web-sourced image");
-    return { buffer: webImage, ext: "jpg" };
+  // Priority 3: Google Custom Search (if configured)
+  const cseImg = cseResult.status === "fulfilled" ? cseResult.value : null;
+  if (cseImg) {
+    console.log(`[Pipeline] Using Google CSE image (${cseImg.length} bytes)`);
+    return { buffer: cseImg, ext: "jpg" };
   }
 
-  console.log("[Pipeline] All strategies failed");
+  console.log("[Pipeline] No real product image found");
   return null;
 }
 
@@ -527,7 +412,7 @@ export async function POST(request: NextRequest) {
       const result = await findProductImage(product);
       if (!result) {
         return NextResponse.json(
-          { success: false, error: "Could not generate or find a product image. Check server logs for details." } satisfies ApiResponse,
+          { success: false, error: "Could not find a product image from any retailer" } satisfies ApiResponse,
           { status: 422 }
         );
       }
@@ -537,7 +422,7 @@ export async function POST(request: NextRequest) {
 
       if (!imageUrl) {
         return NextResponse.json(
-          { success: false, error: "Image generated but upload to storage failed" } satisfies ApiResponse,
+          { success: false, error: "Image found but upload to storage failed" } satisfies ApiResponse,
           { status: 500 }
         );
       }
@@ -597,16 +482,17 @@ Return ONLY valid JSON (no markdown, no code fences):
     const fileBase = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     let imageUrl: string | null = null;
 
+    // Try to find a real product photo from retailers
     const result = await findProductImage(product);
     if (result) {
       imageUrl = await uploadToSupabase(result.buffer, `${fileBase}.${result.ext}`, `image/${result.ext}`);
     }
 
-    // Last resort: upload the raw camera photo
+    // Fallback: upload the user's camera photo (it's a real photo of the product!)
     if (!imageUrl) {
       const rawBuffer = Buffer.from(base64Data, "base64");
       imageUrl = await uploadToSupabase(rawBuffer, `${fileBase}_raw.jpg`, "image/jpeg");
-      console.log("[Identify] Fallback: using raw camera photo");
+      console.log("[Identify] Using camera photo as product image");
     }
 
     if (imageUrl) {
