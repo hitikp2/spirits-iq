@@ -58,15 +58,18 @@ async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: s
 }
 
 // ─── Discover available image generation models ──────────────────────────
-// Calls listModels to find what's actually available on this API key
-let cachedImageModels: string[] | null = null;
+interface DiscoveredModels {
+  gemini: string[];  // Use generateContent endpoint
+  imagen: string[];  // Use predict/generateImages endpoint
+}
+
+let cachedModels: DiscoveredModels | null = null;
 let cacheTime = 0;
 
-async function getImageGenerationModels(apiKey: string): Promise<string[]> {
-  // Cache for 1 hour
-  if (cachedImageModels && Date.now() - cacheTime < 3600000) {
-    return cachedImageModels;
-  }
+async function discoverImageModels(apiKey: string): Promise<DiscoveredModels> {
+  if (cachedModels && Date.now() - cacheTime < 3600000) return cachedModels;
+
+  const result: DiscoveredModels = { gemini: [], imagen: [] };
 
   try {
     const res = await fetch(
@@ -75,36 +78,53 @@ async function getImageGenerationModels(apiKey: string): Promise<string[]> {
     );
     if (!res.ok) {
       console.error("[Discovery] listModels failed:", res.status);
-      return [];
+      return result;
     }
 
     const data = await res.json();
-    const models: string[] = [];
 
     for (const m of data.models || []) {
       const name: string = m.name?.replace("models/", "") || "";
       const methods: string[] = m.supportedGenerationMethods || [];
+      const desc: string = (m.description || "").toLowerCase();
 
-      // Look for models that support image generation
-      const isImageGen = name.includes("image-generation") ||
-        name.includes("imagen") ||
-        (m.description || "").toLowerCase().includes("image generation");
+      const isImageCapable = name.includes("image") || name.includes("imagen") ||
+        desc.includes("image generation") || desc.includes("generate images");
 
-      const supportsGenerate = methods.includes("generateContent") || methods.includes("predict");
+      if (!isImageCapable) continue;
 
-      if (isImageGen && supportsGenerate) {
-        models.push(name);
+      if (name.startsWith("imagen")) {
+        // Imagen models use predict/generateImages endpoints
+        if (methods.includes("predict") || methods.includes("generateImages")) {
+          result.imagen.push(name);
+        }
+      } else {
+        // Gemini models use generateContent
+        if (methods.includes("generateContent")) {
+          result.gemini.push(name);
+        }
       }
     }
 
-    console.log("[Discovery] Available image gen models:", models.length ? models.join(", ") : "NONE");
-    cachedImageModels = models;
+    // Sort: prefer "generate" over "fast", prefer higher versions
+    result.imagen.sort((a, b) => {
+      if (a.includes("ultra")) return -1;
+      if (b.includes("ultra")) return 1;
+      if (a.includes("fast")) return 1;
+      if (b.includes("fast")) return -1;
+      return b.localeCompare(a);
+    });
+
+    console.log("[Discovery] Gemini image models:", result.gemini.length ? result.gemini.join(", ") : "NONE");
+    console.log("[Discovery] Imagen models:", result.imagen.length ? result.imagen.join(", ") : "NONE");
+
+    cachedModels = result;
     cacheTime = Date.now();
-    return models;
   } catch (error) {
     console.error("[Discovery] Exception:", error);
-    return [];
   }
+
+  return result;
 }
 
 // ─── Strategy 1: Gemini Native Image Generation ──────────────────────────
@@ -127,21 +147,13 @@ STRICT requirements:
 - NO hands, NO props, NO surfaces — just the product floating on white
 - Square 1:1 aspect ratio`;
 
-  // Discover available models, plus hardcoded fallbacks to try
-  const discovered = await getImageGenerationModels(apiKey);
-
-  // Prioritize discovered models, then try known model names as fallback
-  const modelsToTry = [
-    ...discovered,
-    // Fallback model names (may or may not exist)
+  // Only try Gemini models (not imagen-*) via generateContent
+  const discovered = await discoverImageModels(apiKey);
+  const models = [...new Set([
+    ...discovered.gemini,
     "gemini-2.5-flash-preview-image-generation",
     "gemini-2.0-flash-preview-image-generation",
-    "gemini-2.0-flash-exp-image-generation",
-    "gemini-2.0-flash-exp",
-  ];
-
-  // Deduplicate
-  const models = [...new Set(modelsToTry)];
+  ])];
 
   for (const model of models) {
     try {
@@ -199,7 +211,15 @@ async function generateImageWithImagen(product: ProductIdentification): Promise<
 
   const prompt = `Professional product photo on pure white background: ${product.brand} ${product.name} ${product.size || ""} bottle/can/package as sold in US liquor stores. Studio lighting, centered, no props.`;
 
-  const models = ["imagen-3.0-generate-002", "imagen-3.0-fast-generate-001"];
+  // Use discovered Imagen models first, then hardcoded fallbacks
+  const discovered = await discoverImageModels(apiKey);
+  const models = [...new Set([
+    ...discovered.imagen,
+    "imagen-4.0-generate-001",
+    "imagen-4.0-ultra-generate-001",
+    "imagen-4.0-fast-generate-001",
+    "imagen-3.0-generate-002",
+  ])];
   const endpoints = ["predict", "generateImages"]; // Try both endpoint formats
 
   for (const model of models) {
@@ -266,7 +286,7 @@ async function findAndDownloadProductImage(product: ProductIdentification): Prom
     const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
     console.log(`[Grounding] Searching for: ${query}`);
 
-    // Ask Gemini to find the product page URL (not image URL — pages are more reliable)
+    // Use Google Search grounding with dynamic retrieval to get source URLs
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
@@ -275,15 +295,13 @@ async function findAndDownloadProductImage(product: ProductIdentification): Prom
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Find product listing URLs for: "${query}"
-
-Search retailers like totalwine.com, drizly.com, wine.com, liquor.com, thewhiskyexchange.com, caskers.com, reservebar.com.
-
-Return up to 5 URLs to product pages where this item is listed. One URL per line, nothing else.`
+              text: `Where can I buy "${query}" online? Give me the full URLs to the product pages.`
             }]
           }],
-          tools: [{ googleSearch: {} }],
-          generationConfig: { maxOutputTokens: 500 },
+          tools: [{
+            googleSearch: {}
+          }],
+          generationConfig: { maxOutputTokens: 800 },
         }),
         signal: AbortSignal.timeout(15000),
       }
@@ -295,44 +313,49 @@ Return up to 5 URLs to product pages where this item is listed. One URL per line
     }
 
     const data = await res.json();
-    console.log(`[Grounding] Raw response keys:`, JSON.stringify(Object.keys(data)));
 
-    // Collect ALL URLs from every possible location in the response
+    // Collect ALL URLs from every possible location
     const urls: string[] = [];
 
     // From response text
     const parts = data.candidates?.[0]?.content?.parts;
     if (parts?.length) {
       const responseText = parts.map((p: any) => p.text || "").join(" ");
-      console.log(`[Grounding] Response text: ${responseText.slice(0, 300)}`);
-      const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
+      console.log(`[Grounding] Response: ${responseText.slice(0, 400)}`);
+      const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)\]]+/gi) || [];
       urls.push(...textUrls);
     }
 
-    // From grounding metadata
+    // From grounding metadata — this is where the source URLs live
     const grounding = data.candidates?.[0]?.groundingMetadata;
     if (grounding) {
-      console.log(`[Grounding] Metadata keys:`, Object.keys(grounding));
-
+      // groundingChunks contain the actual source URLs
       if (grounding.groundingChunks) {
         for (const chunk of grounding.groundingChunks) {
-          if (chunk.web?.uri) urls.push(chunk.web.uri);
-        }
-      }
-      if (grounding.webSearchQueries) {
-        console.log(`[Grounding] Search queries:`, grounding.webSearchQueries);
-      }
-      if (grounding.groundingSupports) {
-        for (const support of grounding.groundingSupports) {
-          if (support.groundingChunkIndices) {
-            // These reference the chunks above, already captured
+          if (chunk.web?.uri) {
+            console.log(`[Grounding] Chunk URL: ${chunk.web.uri}`);
+            urls.push(chunk.web.uri);
           }
         }
       }
+      // searchEntryPoint may contain rendered HTML with URLs
+      if (grounding.searchEntryPoint?.renderedContent) {
+        const hrefMatches = grounding.searchEntryPoint.renderedContent.match(/href="(https?:\/\/[^"]+)"/gi) || [];
+        for (const h of hrefMatches) {
+          const m = h.match(/href="([^"]+)"/);
+          if (m) urls.push(m[1]);
+        }
+      }
+      // Log what metadata keys we got for debugging
+      console.log(`[Grounding] Metadata keys: ${Object.keys(grounding).join(", ")}`);
+    } else {
+      console.log("[Grounding] No grounding metadata in response");
+      // Dump full response for debugging
+      console.log("[Grounding] Full response:", JSON.stringify(data).slice(0, 500));
     }
 
-    // Deduplicate
-    const uniqueUrls = [...new Set(urls)];
+    // Deduplicate and filter out google.com URLs
+    const uniqueUrls = [...new Set(urls)].filter(u => !u.includes("google.com/search"));
     console.log(`[Grounding] Found ${uniqueUrls.length} unique URLs`);
 
     // For each product page URL, fetch it and extract og:image or product image
