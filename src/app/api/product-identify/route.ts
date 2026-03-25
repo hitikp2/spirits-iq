@@ -83,8 +83,8 @@ STRICT requirements:
 
   // Models that support image generation via generateContent, in priority order
   const models = [
+    "gemini-2.5-flash-preview-image-generation",
     "gemini-2.0-flash-preview-image-generation",
-    "gemini-2.0-flash-exp",
   ];
 
   for (const model of models) {
@@ -204,7 +204,7 @@ async function findAndDownloadProductImage(product: ProductIdentification): Prom
     console.log(`[Grounding] Searching for: ${query}`);
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
