@@ -54,68 +54,91 @@ async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: s
   return `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${fileName}`;
 }
 
-// Search Google Images for a professional product photo, download it, return as buffer
-async function fetchProductImageFromWeb(product: ProductIdentification): Promise<{ buffer: Buffer; contentType: string } | null> {
-  const apiKey = process.env.GOOGLE_CSE_API_KEY;
-  const cseId = process.env.GOOGLE_CSE_ID;
-  if (!apiKey || !cseId) {
-    console.log("Google CSE not configured (GOOGLE_CSE_API_KEY / GOOGLE_CSE_ID) — skipping web image search");
-    return null;
-  }
+// Use Gemini with Google Search grounding to find a real product image URL
+async function findProductImageUrl(product: ProductIdentification): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
 
   try {
-    // Build a specific product search query
-    const query = `${product.brand} ${product.name} ${product.size} product photo white background`;
-    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query)}&searchType=image&num=5&imgSize=MEDIUM&imgType=photo&safe=active`;
+    const query = `${product.brand} ${product.name} ${product.size}`;
+    console.log("Searching for product image via Gemini grounding:", query);
 
-    console.log("Searching Google Images for:", query);
-    const searchRes = await fetch(searchUrl);
-    if (!searchRes.ok) {
-      console.error("Google CSE search failed:", searchRes.status, await searchRes.text());
-      return null;
-    }
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `Find a direct image URL for this product: ${query}
 
-    const searchData = await searchRes.json();
-    const items = searchData.items;
-    if (!items?.length) {
-      console.error("Google CSE: no image results");
-      return null;
-    }
+I need a SINGLE direct URL to a professional product photo (PNG or JPG) showing the product on a white/clean background.
 
-    // Try downloading images in order until one succeeds
-    for (const item of items) {
-      const imageLink = item.link;
-      if (!imageLink) continue;
+Look for product images from major retailers like drizly.com, totalwine.com, wine.com, binnys.com, thewhiskyexchange.com, minibardelivery.com, or manufacturer sites.
 
-      try {
-        const imgRes = await fetch(imageLink, {
-          headers: { "User-Agent": "SpiritsIQ/1.0 Product Image Fetcher" },
-          signal: AbortSignal.timeout(8000),
-        });
-
-        if (!imgRes.ok) continue;
-
-        const ct = imgRes.headers.get("content-type") || "image/jpeg";
-        if (!ct.startsWith("image/")) continue;
-
-        const arrayBuffer = await imgRes.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        // Skip tiny images (likely thumbnails/icons) or huge ones
-        if (buffer.length < 5000 || buffer.length > 5 * 1024 * 1024) continue;
-
-        console.log("Downloaded product image from:", imageLink, `(${buffer.length} bytes)`);
-        return { buffer, contentType: ct };
-      } catch {
-        // This image URL failed, try the next one
-        continue;
+Return ONLY the direct image URL (ending in .jpg, .png, or .webp, or from a CDN/image server). No other text. Just the URL.`
+            }]
+          }],
+          tools: [{ googleSearch: {} }],
+          generationConfig: { maxOutputTokens: 200 },
+        }),
       }
+    );
+
+    if (!res.ok) {
+      console.error("Gemini grounding search failed:", res.status);
+      return null;
     }
 
-    console.error("Google CSE: all image downloads failed");
-    return null;
+    const data = await res.json();
+    const parts = data.candidates?.[0]?.content?.parts;
+    if (!parts?.length) return null;
+
+    // Extract URL from the response text
+    const responseText = parts.map((p: any) => p.text || "").join(" ").trim();
+    const urlMatch = responseText.match(/https?:\/\/[^\s"'<>]+\.(jpg|jpeg|png|webp)(\?[^\s"'<>]*)?/i)
+      || responseText.match(/https?:\/\/[^\s"'<>]*(?:image|img|photo|product|cdn|media)[^\s"'<>]*/i)
+      || responseText.match(/https?:\/\/[^\s"'<>]+/);
+
+    if (!urlMatch) {
+      console.error("Gemini grounding: no URL in response:", responseText);
+      return null;
+    }
+
+    console.log("Found product image URL:", urlMatch[0]);
+    return urlMatch[0];
   } catch (error) {
-    console.error("Web image search error:", error);
+    console.error("Gemini grounding search error:", error);
+    return null;
+  }
+}
+
+// Download an image from a URL, return as buffer
+async function downloadImage(url: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; SpiritsIQ/1.0)",
+        "Accept": "image/*",
+      },
+      signal: AbortSignal.timeout(10000),
+      redirect: "follow",
+    });
+
+    if (!res.ok) return null;
+
+    const ct = res.headers.get("content-type") || "image/jpeg";
+    if (!ct.startsWith("image/")) return null;
+
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Skip tiny images (icons/placeholders) or oversized ones
+    if (buffer.length < 3000 || buffer.length > 5 * 1024 * 1024) return null;
+
+    return { buffer, contentType: ct };
+  } catch {
     return null;
   }
 }
@@ -238,16 +261,19 @@ Return ONLY valid JSON (no markdown, no code fences):
     const product: ProductIdentification = JSON.parse(jsonMatch[0]);
 
     // Step 2: Find a professional product image
-    // Priority: Google Images → Gemini AI generation → raw camera photo
+    // Priority: Gemini Search grounding (real photo) → AI generation → raw camera photo
     const fileBase = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     let imageUrl: string | null = null;
 
-    // Try 1: Fetch real product photo from Google Images
-    const webImage = await fetchProductImageFromWeb(product);
-    if (webImage) {
-      const ext = webImage.contentType.includes("png") ? "png" : "jpg";
-      imageUrl = await uploadToSupabase(webImage.buffer, `${fileBase}.${ext}`, webImage.contentType);
-      if (imageUrl) console.log("Using Google Images product photo");
+    // Try 1: Find real product photo via Gemini + Google Search grounding
+    const foundUrl = await findProductImageUrl(product);
+    if (foundUrl) {
+      const downloaded = await downloadImage(foundUrl);
+      if (downloaded) {
+        const ext = downloaded.contentType.includes("png") ? "png" : "jpg";
+        imageUrl = await uploadToSupabase(downloaded.buffer, `${fileBase}.${ext}`, downloaded.contentType);
+        if (imageUrl) console.log("Using real product photo from web");
+      }
     }
 
     // Try 2: AI-generated product image
