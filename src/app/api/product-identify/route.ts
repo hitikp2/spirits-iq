@@ -20,13 +20,18 @@ interface ProductIdentification {
 }
 
 // ─── Build a precise search query for SKU-specific image matching ─────────
-// "Ciroc Pineapple 750ml bottle" not just "Ciroc"
+// "Ciroc Pineapple 750ml" not just "Ciroc"
 function buildImageQuery(product: ProductIdentification): string {
   const parts: string[] = [];
   if (product.brand) parts.push(product.brand);
-  if (product.name && product.name !== product.brand) parts.push(product.name);
+  // Only add name if it's different from brand (avoid "Grey Goose Grey Goose")
+  if (product.name) {
+    const nameWithoutBrand = product.name.replace(new RegExp(product.brand || "XXXXX", "i"), "").trim();
+    if (nameWithoutBrand) parts.push(nameWithoutBrand);
+    else if (!product.brand) parts.push(product.name);
+  }
   if (product.size) parts.push(product.size);
-  return parts.join(" ").trim();
+  return parts.join(" ").trim() || product.name;
 }
 
 // ─── Supabase Storage Upload ───────────────────────────────────────────────
@@ -101,21 +106,28 @@ async function searchGoogleCSE(product: ProductIdentification): Promise<Buffer |
   if (!apiKey || !cseId) return null;
 
   try {
-    const query = buildImageQuery(product) + " bottle product photo";
-    console.log(`[GoogleCSE] Searching: ${query}`);
+    const baseQuery = buildImageQuery(product);
+    const query = baseQuery + " product";
+    console.log(`[GoogleCSE] Searching: "${query}"`);
 
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query)}&searchType=image&num=10&imgSize=large&imgType=photo&safe=off`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query)}&searchType=image&num=10&imgSize=large&safe=off`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error(`[GoogleCSE] HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      console.error(`[GoogleCSE] HTTP ${res.status}: ${errText.slice(0, 300)}`);
+      // If 403, the API key doesn't have Custom Search API enabled
+      if (res.status === 403) {
+        console.error(`[GoogleCSE] ⚠️  Your API key may not have Custom Search JSON API enabled.`);
+        console.error(`[GoogleCSE] Go to: https://console.cloud.google.com/apis/library/customsearch.googleapis.com`);
+        console.error(`[GoogleCSE] Enable it, then retry. Or create a separate GOOGLE_CSE_API_KEY.`);
+      }
       return null;
     }
 
     const data = await res.json();
     const items = data.items || [];
-    console.log(`[GoogleCSE] Got ${items.length} image results`);
+    console.log(`[GoogleCSE] Got ${items.length} results for "${baseQuery}"`);
 
     // Prefer images from known retailer CDNs (highest quality product photos)
     const preferredDomains = [
@@ -512,6 +524,67 @@ export async function POST(request: NextRequest) {
 
       console.log(`[RefreshImage] Success: ${imageUrl}`);
       return NextResponse.json({ success: true, data: { productId, imageUrl } } satisfies ApiResponse);
+    }
+
+    // ─── Action: diagnose — test image pipeline for a product ──────────
+    if (action === "diagnose") {
+      const { name, brand, size } = body;
+      const product: ProductIdentification = {
+        name: name || "", brand: brand || "", category: "", size: size || "",
+        abv: "", retailPrice: 0, costPrice: 0, description: "", isAgeRestricted: false,
+      };
+
+      const query = buildImageQuery(product);
+      const apiKey = process.env.GEMINI_API_KEY;
+      const cseId = process.env.GOOGLE_CSE_ID;
+      const results: Record<string, string> = {
+        query,
+        cseConfigured: cseId ? `YES (cx=${cseId.slice(0, 6)}...)` : "NO — set GOOGLE_CSE_ID in Railway",
+        apiKeyType: apiKey ? `Set (${apiKey.slice(0, 8)}...)` : "MISSING",
+      };
+
+      // Test CSE specifically
+      if (apiKey && cseId) {
+        try {
+          const cseUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(query + " product")}&searchType=image&num=3&imgSize=large`;
+          const cseRes = await fetch(cseUrl, { signal: AbortSignal.timeout(10000) });
+          if (cseRes.ok) {
+            const cseData = await cseRes.json();
+            const items = cseData.items || [];
+            results.cseStatus = `OK — ${items.length} results`;
+            results.cseTopResults = items.slice(0, 3).map((i: any) => `${i.displayLink}: ${i.link?.slice(0, 80)}`).join(" | ");
+          } else {
+            const errText = await cseRes.text();
+            results.cseStatus = `ERROR ${cseRes.status}`;
+            results.cseError = errText.slice(0, 300);
+            if (cseRes.status === 403) {
+              results.cseFix = "Enable Custom Search JSON API at console.cloud.google.com/apis/library/customsearch.googleapis.com";
+            }
+          }
+        } catch (e: any) {
+          results.cseStatus = `Exception: ${e.message}`;
+        }
+      }
+
+      // Test KG
+      if (apiKey) {
+        try {
+          const kgUrl = `https://kgsearch.googleapis.com/v1/entities:search?query=${encodeURIComponent(query)}&key=${apiKey}&limit=3&types=Thing`;
+          const kgRes = await fetch(kgUrl, { signal: AbortSignal.timeout(8000) });
+          if (kgRes.ok) {
+            const kgData = await kgRes.json();
+            const els = kgData.itemListElement || [];
+            results.kgStatus = `OK — ${els.length} entities`;
+            results.kgEntities = els.slice(0, 3).map((e: any) => `"${e.result?.name}" img:${e.result?.image?.contentUrl ? "YES" : "NO"}`).join(" | ");
+          } else {
+            results.kgStatus = `ERROR ${kgRes.status}`;
+          }
+        } catch (e: any) {
+          results.kgStatus = `Exception: ${e.message}`;
+        }
+      }
+
+      return NextResponse.json({ success: true, data: results } satisfies ApiResponse);
     }
 
     // ─── Action: bulk-refresh ─────────────────────────────────────────
