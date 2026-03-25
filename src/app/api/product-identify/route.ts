@@ -27,10 +27,7 @@ async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: s
     console.error("Upload skipped: SUPABASE_URL or SUPABASE_SERVICE_KEY not set");
     return null;
   }
-  if (buffer.length > 5 * 1024 * 1024) {
-    console.error("Upload skipped: buffer too large", buffer.length);
-    return null;
-  }
+  if (buffer.length > 5 * 1024 * 1024) return null;
 
   const uploadUrl = `${supabaseUrl}/storage/v1/object/${BUCKET}/${fileName}`;
   const headers = {
@@ -60,8 +57,57 @@ async function uploadToSupabase(buffer: Buffer, fileName: string, contentType: s
   return `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${fileName}`;
 }
 
-// ─── Strategy 1: Gemini Native Image Generation ───────────────────────────
-// Uses models that can output images directly via generateContent
+// ─── Discover available image generation models ──────────────────────────
+// Calls listModels to find what's actually available on this API key
+let cachedImageModels: string[] | null = null;
+let cacheTime = 0;
+
+async function getImageGenerationModels(apiKey: string): Promise<string[]> {
+  // Cache for 1 hour
+  if (cachedImageModels && Date.now() - cacheTime < 3600000) {
+    return cachedImageModels;
+  }
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) {
+      console.error("[Discovery] listModels failed:", res.status);
+      return [];
+    }
+
+    const data = await res.json();
+    const models: string[] = [];
+
+    for (const m of data.models || []) {
+      const name: string = m.name?.replace("models/", "") || "";
+      const methods: string[] = m.supportedGenerationMethods || [];
+
+      // Look for models that support image generation
+      const isImageGen = name.includes("image-generation") ||
+        name.includes("imagen") ||
+        (m.description || "").toLowerCase().includes("image generation");
+
+      const supportsGenerate = methods.includes("generateContent") || methods.includes("predict");
+
+      if (isImageGen && supportsGenerate) {
+        models.push(name);
+      }
+    }
+
+    console.log("[Discovery] Available image gen models:", models.length ? models.join(", ") : "NONE");
+    cachedImageModels = models;
+    cacheTime = Date.now();
+    return models;
+  } catch (error) {
+    console.error("[Discovery] Exception:", error);
+    return [];
+  }
+}
+
+// ─── Strategy 1: Gemini Native Image Generation ──────────────────────────
 async function generateImageWithGemini(product: ProductIdentification): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -81,15 +127,27 @@ STRICT requirements:
 - NO hands, NO props, NO surfaces — just the product floating on white
 - Square 1:1 aspect ratio`;
 
-  // Models that support image generation via generateContent, in priority order
-  const models = [
+  // Discover available models, plus hardcoded fallbacks to try
+  const discovered = await getImageGenerationModels(apiKey);
+
+  // Prioritize discovered models, then try known model names as fallback
+  const modelsToTry = [
+    ...discovered,
+    // Fallback model names (may or may not exist)
     "gemini-2.5-flash-preview-image-generation",
     "gemini-2.0-flash-preview-image-generation",
+    "gemini-2.0-flash-exp-image-generation",
+    "gemini-2.0-flash-exp",
   ];
+
+  // Deduplicate
+  const models = [...new Set(modelsToTry)];
 
   for (const model of models) {
     try {
-      console.log(`[ImageGen] Trying model: ${model}`);
+      console.log(`[ImageGen] Trying: ${model}`);
+
+      // Try generateContent (for gemini-* models)
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
@@ -102,99 +160,104 @@ STRICT requirements:
               maxOutputTokens: 4096,
             },
           }),
+          signal: AbortSignal.timeout(30000),
         }
       );
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error(`[ImageGen] ${model} HTTP ${res.status}:`, errText.slice(0, 200));
+        console.error(`[ImageGen] ${model} → ${res.status}: ${errText.slice(0, 150)}`);
         continue;
       }
 
       const data = await res.json();
-      const candidates = data.candidates;
-      if (!candidates?.length) {
-        console.error(`[ImageGen] ${model}: no candidates in response`);
-        continue;
-      }
-
-      const parts = candidates[0].content?.parts;
+      const parts = data.candidates?.[0]?.content?.parts;
       if (!parts?.length) {
-        console.error(`[ImageGen] ${model}: no parts in candidate`);
+        console.error(`[ImageGen] ${model}: empty response`);
         continue;
       }
 
       for (const part of parts) {
         if (part.inlineData?.data) {
-          console.log(`[ImageGen] Success with ${model} (${part.inlineData.mimeType})`);
+          console.log(`[ImageGen] SUCCESS with ${model}`);
           return part.inlineData.data;
         }
       }
-
-      console.error(`[ImageGen] ${model}: response had parts but no image data. Parts:`,
-        parts.map((p: any) => Object.keys(p)));
-    } catch (error) {
-      console.error(`[ImageGen] ${model} exception:`, error);
+      console.error(`[ImageGen] ${model}: response had no image data`);
+    } catch (error: any) {
+      console.error(`[ImageGen] ${model} exception:`, error?.message || error);
     }
   }
 
   return null;
 }
 
-// ─── Strategy 2: Imagen 3 Dedicated Image Generation ──────────────────────
-// Google's dedicated image generation model with a different API format
+// ─── Strategy 2: Imagen via predict/generateImages endpoints ─────────────
 async function generateImageWithImagen(product: ProductIdentification): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
   const prompt = `Professional product photo on pure white background: ${product.brand} ${product.name} ${product.size || ""} bottle/can/package as sold in US liquor stores. Studio lighting, centered, no props.`;
 
-  const models = [
-    "imagen-3.0-generate-002",
-    "imagen-3.0-fast-generate-001",
-  ];
+  const models = ["imagen-3.0-generate-002", "imagen-3.0-fast-generate-001"];
+  const endpoints = ["predict", "generateImages"]; // Try both endpoint formats
 
   for (const model of models) {
-    try {
-      console.log(`[Imagen] Trying model: ${model}`);
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`[Imagen] Trying: ${model} via :${endpoint}`);
 
-      // Try the generateImages endpoint (Google AI format)
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const bodyByEndpoint: Record<string, any> = {
+          predict: {
             instances: [{ prompt }],
             parameters: { sampleCount: 1, aspectRatio: "1:1" },
-          }),
+          },
+          generateImages: {
+            prompt,
+            config: { numberOfImages: 1 },
+          },
+        };
+
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(bodyByEndpoint[endpoint]),
+            signal: AbortSignal.timeout(30000),
+          }
+        );
+
+        if (!res.ok) {
+          const errText = await res.text();
+          console.error(`[Imagen] ${model}:${endpoint} → ${res.status}: ${errText.slice(0, 150)}`);
+          continue;
         }
-      );
 
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error(`[Imagen] ${model} HTTP ${res.status}:`, errText.slice(0, 200));
-        continue;
+        const data = await res.json();
+
+        // predict format
+        if (data.predictions?.[0]?.bytesBase64Encoded) {
+          console.log(`[Imagen] SUCCESS with ${model}:${endpoint}`);
+          return data.predictions[0].bytesBase64Encoded;
+        }
+        // generateImages format
+        if (data.generatedImages?.[0]?.image?.imageBytes) {
+          console.log(`[Imagen] SUCCESS with ${model}:${endpoint}`);
+          return data.generatedImages[0].image.imageBytes;
+        }
+
+        console.error(`[Imagen] ${model}:${endpoint}: unexpected response`, JSON.stringify(data).slice(0, 200));
+      } catch (error: any) {
+        console.error(`[Imagen] ${model}:${endpoint} exception:`, error?.message || error);
       }
-
-      const data = await res.json();
-      const predictions = data.predictions;
-      if (predictions?.[0]?.bytesBase64Encoded) {
-        console.log(`[Imagen] Success with ${model}`);
-        return predictions[0].bytesBase64Encoded;
-      }
-
-      console.error(`[Imagen] ${model}: unexpected response shape`, Object.keys(data));
-    } catch (error) {
-      console.error(`[Imagen] ${model} exception:`, error);
     }
   }
 
   return null;
 }
 
-// ─── Strategy 3: Gemini Search Grounding → Download ───────────────────────
-// Ask Gemini to search the web for a product image URL, then download it
+// ─── Strategy 3: Gemini Search Grounding → Scrape page for images ────────
 async function findAndDownloadProductImage(product: ProductIdentification): Promise<Buffer | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -203,6 +266,7 @@ async function findAndDownloadProductImage(product: ProductIdentification): Prom
     const query = `${product.brand} ${product.name} ${product.size || ""}`.trim();
     console.log(`[Grounding] Searching for: ${query}`);
 
+    // Ask Gemini to find the product page URL (not image URL — pages are more reliable)
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
@@ -211,16 +275,17 @@ async function findAndDownloadProductImage(product: ProductIdentification): Prom
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Search for "${query}" product image. I need a direct URL to the product photo (the actual image file, not a webpage).
+              text: `Find product listing URLs for: "${query}"
 
-Look on: totalwine.com, drizly.com, wine.com, liquor.com, caskers.com, thewhiskyexchange.com, minibardelivery.com
+Search retailers like totalwine.com, drizly.com, wine.com, liquor.com, thewhiskyexchange.com, caskers.com, reservebar.com.
 
-Return ONLY the most likely direct image URL. Nothing else — just the URL on a single line.`
+Return up to 5 URLs to product pages where this item is listed. One URL per line, nothing else.`
             }]
           }],
           tools: [{ googleSearch: {} }],
-          generationConfig: { maxOutputTokens: 300 },
+          generationConfig: { maxOutputTokens: 500 },
         }),
+        signal: AbortSignal.timeout(15000),
       }
     );
 
@@ -230,84 +295,113 @@ Return ONLY the most likely direct image URL. Nothing else — just the URL on a
     }
 
     const data = await res.json();
+    console.log(`[Grounding] Raw response keys:`, JSON.stringify(Object.keys(data)));
 
-    // Collect ALL URLs: from response text + grounding metadata
+    // Collect ALL URLs from every possible location in the response
     const urls: string[] = [];
 
-    // Extract from response text
+    // From response text
     const parts = data.candidates?.[0]?.content?.parts;
     if (parts?.length) {
       const responseText = parts.map((p: any) => p.text || "").join(" ");
+      console.log(`[Grounding] Response text: ${responseText.slice(0, 300)}`);
       const textUrls = responseText.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
       urls.push(...textUrls);
     }
 
-    // Extract from grounding metadata (search results)
+    // From grounding metadata
     const grounding = data.candidates?.[0]?.groundingMetadata;
-    if (grounding?.groundingChunks) {
-      for (const chunk of grounding.groundingChunks) {
-        if (chunk.web?.uri) urls.push(chunk.web.uri);
+    if (grounding) {
+      console.log(`[Grounding] Metadata keys:`, Object.keys(grounding));
+
+      if (grounding.groundingChunks) {
+        for (const chunk of grounding.groundingChunks) {
+          if (chunk.web?.uri) urls.push(chunk.web.uri);
+        }
+      }
+      if (grounding.webSearchQueries) {
+        console.log(`[Grounding] Search queries:`, grounding.webSearchQueries);
+      }
+      if (grounding.groundingSupports) {
+        for (const support of grounding.groundingSupports) {
+          if (support.groundingChunkIndices) {
+            // These reference the chunks above, already captured
+          }
+        }
       }
     }
-    if (grounding?.searchEntryPoint?.renderedContent) {
-      const rendered = grounding.searchEntryPoint.renderedContent;
-      const metaUrls = rendered.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
-      urls.push(...metaUrls);
-    }
 
-    console.log(`[Grounding] Found ${urls.length} URLs to try`);
+    // Deduplicate
+    const uniqueUrls = [...new Set(urls)];
+    console.log(`[Grounding] Found ${uniqueUrls.length} unique URLs`);
 
-    // Prioritize URLs that look like images
-    const sorted = urls.sort((a, b) => {
-      const aImg = /\.(jpg|jpeg|png|webp)/i.test(a) || /image|img|photo|cdn|media/i.test(a) ? 0 : 1;
-      const bImg = /\.(jpg|jpeg|png|webp)/i.test(b) || /image|img|photo|cdn|media/i.test(b) ? 0 : 1;
-      return aImg - bImg;
-    });
-
-    // Try downloading each URL
-    for (const url of sorted.slice(0, 8)) {
+    // For each product page URL, fetch it and extract og:image or product image
+    for (const pageUrl of uniqueUrls.slice(0, 5)) {
       try {
-        console.log(`[Grounding] Trying download: ${url.slice(0, 100)}`);
-        const imgRes = await fetch(url, {
+        console.log(`[Grounding] Fetching page: ${pageUrl.slice(0, 100)}`);
+
+        // First check if URL is already a direct image
+        if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(pageUrl)) {
+          const imgBuf = await downloadImageDirect(pageUrl);
+          if (imgBuf) return imgBuf;
+          continue;
+        }
+
+        // Fetch the page HTML and extract og:image
+        const pageRes = await fetch(pageUrl, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.google.com/",
+            "Accept": "text/html,application/xhtml+xml",
           },
           signal: AbortSignal.timeout(8000),
           redirect: "follow",
         });
 
-        if (!imgRes.ok) {
-          console.log(`[Grounding] ${url.slice(0, 60)}... → ${imgRes.status}`);
+        if (!pageRes.ok) {
+          console.log(`[Grounding] Page ${pageRes.status}: ${pageUrl.slice(0, 60)}`);
           continue;
         }
 
-        const ct = imgRes.headers.get("content-type") || "";
-        if (!ct.startsWith("image/")) {
-          console.log(`[Grounding] Not an image: ${ct}`);
-          continue;
+        const html = await pageRes.text();
+
+        // Extract image URLs from HTML (og:image, product images, etc.)
+        const imageUrls: string[] = [];
+
+        // og:image meta tag (most reliable for product pages)
+        const ogMatch = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i)
+          || html.match(/content="([^"]+)"\s+(?:property|name)="og:image"/i);
+        if (ogMatch) imageUrls.push(ogMatch[1]);
+
+        // twitter:image
+        const twMatch = html.match(/<meta\s+(?:property|name)="twitter:image"\s+content="([^"]+)"/i)
+          || html.match(/content="([^"]+)"\s+(?:property|name)="twitter:image"/i);
+        if (twMatch) imageUrls.push(twMatch[1]);
+
+        // JSON-LD product image
+        const jsonLdMatch = html.match(/"image"\s*:\s*"(https?:\/\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/gi);
+        if (jsonLdMatch) {
+          for (const m of jsonLdMatch) {
+            const urlM = m.match(/"(https?:\/\/[^"]+)"/);
+            if (urlM) imageUrls.push(urlM[1]);
+          }
         }
 
-        const buf = Buffer.from(await imgRes.arrayBuffer());
-        if (buf.length < 5000) {
-          console.log(`[Grounding] Too small (${buf.length}b), likely placeholder`);
-          continue;
-        }
-        if (buf.length > 5 * 1024 * 1024) {
-          console.log(`[Grounding] Too large (${buf.length}b)`);
-          continue;
-        }
+        console.log(`[Grounding] Found ${imageUrls.length} image URLs on page`);
 
-        console.log(`[Grounding] Downloaded ${buf.length}b from ${url.slice(0, 80)}`);
-        return buf;
+        // Try downloading each image
+        for (const imgUrl of imageUrls.slice(0, 3)) {
+          const buf = await downloadImageDirect(imgUrl);
+          if (buf) {
+            console.log(`[Grounding] Got image from: ${pageUrl.slice(0, 60)}`);
+            return buf;
+          }
+        }
       } catch {
         continue;
       }
     }
 
-    console.log("[Grounding] All URL downloads failed");
+    console.log("[Grounding] All attempts failed");
     return null;
   } catch (error) {
     console.error("[Grounding] Exception:", error);
@@ -315,32 +409,59 @@ Return ONLY the most likely direct image URL. Nothing else — just the URL on a
   }
 }
 
-// ─── Main Pipeline: Find the best product image ──────────────────────────
-// Runs strategies in parallel where possible, returns first success
+// Download a direct image URL
+async function downloadImageDirect(url: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": "https://www.google.com/",
+      },
+      signal: AbortSignal.timeout(8000),
+      redirect: "follow",
+    });
+
+    if (!res.ok) return null;
+
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.startsWith("image/")) return null;
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 3000 || buf.length > 5 * 1024 * 1024) return null;
+
+    console.log(`[Download] OK: ${buf.length}b from ${url.slice(0, 80)}`);
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Main Pipeline ───────────────────────────────────────────────────────
 async function findProductImage(product: ProductIdentification): Promise<{ buffer: Buffer; ext: string } | null> {
-  // Run Gemini image gen and Imagen in parallel (they're independent)
-  const [geminiResult, imagenResult] = await Promise.allSettled([
+  // Run ALL strategies in parallel
+  const [geminiResult, imagenResult, groundingResult] = await Promise.allSettled([
     generateImageWithGemini(product),
     generateImageWithImagen(product),
+    findAndDownloadProductImage(product),
   ]);
 
-  // Check Gemini native image gen
+  // Priority 1: Gemini image gen
   const geminiBase64 = geminiResult.status === "fulfilled" ? geminiResult.value : null;
   if (geminiBase64) {
     console.log("[Pipeline] Using Gemini-generated image");
     return { buffer: Buffer.from(geminiBase64, "base64"), ext: "png" };
   }
 
-  // Check Imagen
+  // Priority 2: Imagen
   const imagenBase64 = imagenResult.status === "fulfilled" ? imagenResult.value : null;
   if (imagenBase64) {
     console.log("[Pipeline] Using Imagen-generated image");
     return { buffer: Buffer.from(imagenBase64, "base64"), ext: "png" };
   }
 
-  // Fallback: try grounding search
-  console.log("[Pipeline] AI generation failed, trying web search...");
-  const webImage = await findAndDownloadProductImage(product);
+  // Priority 3: Web-sourced image
+  const webImage = groundingResult.status === "fulfilled" ? groundingResult.value : null;
   if (webImage) {
     console.log("[Pipeline] Using web-sourced image");
     return { buffer: webImage, ext: "jpg" };
@@ -398,7 +519,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Update the product in the database
       const { db } = await import("@/lib/db");
       await db.product.update({ where: { id: productId }, data: { imageUrl } });
 
@@ -418,7 +538,6 @@ export async function POST(request: NextRequest) {
 
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
-    // Step 1: Identify the product from the camera photo
     const model = getModel({
       maxOutputTokens: 500,
       systemInstruction: `You are a liquor store product identification assistant. Analyze the product photo and return ONLY a JSON object with these fields. Be accurate with pricing — use typical US retail prices. If you can't identify the exact product, make your best guess from what's visible.`,
@@ -452,7 +571,6 @@ Return ONLY valid JSON (no markdown, no code fences):
 
     const product: ProductIdentification = JSON.parse(jsonMatch[0]);
 
-    // Step 2: Find a professional product image (all strategies)
     const fileBase = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     let imageUrl: string | null = null;
 
