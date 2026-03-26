@@ -332,7 +332,8 @@ export default function SmsPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3 border-b border-surface-600 px-4 py-3">
+            {/* Sticky contact header */}
+            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-surface-600 bg-surface-950 px-4 py-3">
               <button
                 onClick={handleBack}
                 className="flex-shrink-0 rounded-xl p-1.5 text-surface-300 transition-colors hover:bg-surface-800 hover:text-surface-100 md:hidden"
@@ -376,6 +377,7 @@ export default function SmsPage() {
               )}
             </div>
 
+            {/* Scrollable messages area */}
             <div className="flex-1 overflow-y-auto px-4 py-4">
               <div className="mx-auto flex max-w-2xl flex-col gap-3">
                 {selected.messages.map((msg) => (
@@ -422,7 +424,8 @@ export default function SmsPage() {
               </div>
             </div>
 
-            <div className="border-t border-surface-600 px-4 py-3">
+            {/* Sticky message input — pinned above bottom nav */}
+            <div className="sticky bottom-0 z-10 border-t border-surface-600 bg-surface-950 px-4 py-3">
               <div className="mx-auto flex max-w-2xl items-end gap-2">
                 <textarea
                   value={messageInput}
