@@ -184,7 +184,7 @@ export default function SmsPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
+    <div className="flex flex-col overflow-hidden" style={{ height: "calc(100dvh - 7.5rem)" }}>
       {/* Tab Bar */}
       <div className="flex items-center gap-2 px-1 pb-3">
         <button
@@ -213,7 +213,7 @@ export default function SmsPage() {
 
       {/* Messages Tab */}
       {activeTab === "messages" && (
-      <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-surface-600 bg-surface-950">
+      <div className="flex flex-1 min-h-0 overflow-hidden rounded-2xl border border-surface-700 bg-surface-950">
       <div
         className={cn(
           "w-full flex-shrink-0 border-r border-surface-600 bg-surface-900 md:w-80 lg:w-96",
@@ -332,8 +332,8 @@ export default function SmsPage() {
           </div>
         ) : (
           <>
-            {/* Sticky contact header */}
-            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-surface-600 bg-surface-950 px-4 py-3">
+            {/* Fixed contact header */}
+            <div className="flex-shrink-0 flex items-center gap-3 border-b border-surface-600 bg-surface-950 px-4 py-3">
               <button
                 onClick={handleBack}
                 className="flex-shrink-0 rounded-xl p-1.5 text-surface-300 transition-colors hover:bg-surface-800 hover:text-surface-100 md:hidden"
@@ -424,8 +424,8 @@ export default function SmsPage() {
               </div>
             </div>
 
-            {/* Sticky message input — pinned above bottom nav */}
-            <div className="sticky bottom-0 z-10 border-t border-surface-600 bg-surface-950 px-4 py-3">
+            {/* Fixed message input — pinned above bottom nav */}
+            <div className="flex-shrink-0 border-t border-surface-600 bg-surface-950 px-4 py-3">
               <div className="mx-auto flex max-w-2xl items-end gap-2">
                 <textarea
                   value={messageInput}
