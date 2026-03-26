@@ -57,6 +57,7 @@ export default function DashboardLayout({
 
   const activeItem = NAV_ITEMS.find((n) => pathname.startsWith(n.href));
   const isPos = pathname === "/pos";
+  const isSms = pathname === "/sms";
 
   // ─── Swipe navigation for POS ───
   const touchStartX = useRef(0);
@@ -226,8 +227,8 @@ export default function DashboardLayout({
         {/* Content */}
         <main
           className={cn(
-            "flex-1 overflow-y-auto overscroll-contain",
-            isPos ? "px-0 py-0" : "px-4 py-4"
+            "flex-1 overscroll-contain",
+            isPos || isSms ? "overflow-hidden px-0 py-0" : "overflow-y-auto px-4 py-4"
           )}
           style={{ WebkitOverflowScrolling: "touch" as any }}
           onTouchStart={handleTouchStart}

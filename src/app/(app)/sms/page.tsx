@@ -184,7 +184,7 @@ export default function SmsPage() {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden" style={{ height: "calc(100dvh - 7.5rem)" }}>
+    <div className="flex flex-col overflow-hidden h-full px-4 pt-4">
       {/* Tab Bar */}
       <div className="flex items-center gap-2 px-1 pb-3">
         <button
